@@ -29,34 +29,21 @@ class PDFViewModel: ObservableObject {
     }
     
     // MARK: - Create New PDF
-    
+
     func createNewPDF() {
         let page = PDFPage()
         _ = CGRect(x: 0, y: 0, width: 595.28, height: 841.89)
-        
+
         let document = PDFDocument()
         document.insert(page, at: 0)
-        
+
         currentDocument = document
-        
-        // Create in Documents directory instead of temp
-        let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        
-        // Generate unique filename with timestamp
-        let timestamp = Date().timeIntervalSince1970
-        let filename = "Untitled PDF \(Int(timestamp)).pdf"
-        let fileURL = documentsDirectory.appendingPathComponent(filename)
-        
-        // Save initial blank PDF
-        let success = document.write(to: fileURL)
-        
-        if success {
-            currentURL = fileURL
-            hasUnsavedChanges = false
-            print("✅ Created new blank PDF at: \(fileURL.path)")
-        } else {
-            print("❌ Failed to create new PDF")
-        }
+
+        // New document starts without a file - Save will trigger Save As
+        currentURL = nil
+        hasUnsavedChanges = true
+
+        print("✅ Created new blank PDF (unsaved)")
     }
     
     func createNewPDFWithDrawingSupport(drawingViewModel: DrawingViewModel) {
@@ -105,9 +92,11 @@ class PDFViewModel: ObservableObject {
         currentDocument = document
         currentURL = url
         hasUnsavedChanges = false
-        
-        addToRecentFiles(url)
-        
+
+        // Update recent files using new manager
+        RecentFilesManager.shared.addOrBump(url: url)
+        addToRecentFiles(url) // Keep old system for backward compatibility
+
         print("✅ Loaded PDF: \(url.lastPathComponent)")
     }
     
@@ -138,8 +127,10 @@ class PDFViewModel: ObservableObject {
             drawingViewModel.clearAllDrawings()
             print("✅ Loaded PDF (no drawings)")
         }
-        
-        addToRecentFiles(url)
+
+        // Update recent files using new manager
+        RecentFilesManager.shared.addOrBump(url: url)
+        addToRecentFiles(url) // Keep old system for backward compatibility
     }
     
     // MARK: - Save Functionality
@@ -221,15 +212,18 @@ class PDFViewModel: ObservableObject {
         
         if success {
             print("✅ PDF copy saved to: \(newURL.lastPathComponent)")
-            
-            // ✅ NEW: Preserve margin settings if PDFManager is provided
+
+            // Preserve margin settings if PDFManager is provided
             if let pdfManager = pdfManager {
                 preserveMarginSettings(from: url, to: newURL, pdfManager: pdfManager)
             }
-            
+
+            // Update recent files
+            RecentFilesManager.shared.updateAfterSaveAsOrRename(from: url, to: newURL)
+
             currentURL = newURL
             hasUnsavedChanges = false
-            addToRecentFiles(newURL)
+            addToRecentFiles(newURL) // Keep old system for backward compatibility
         } else {
             print("❌ Failed to save PDF copy")
         }
@@ -313,13 +307,16 @@ class PDFViewModel: ObservableObject {
         
         do {
             try FileManager.default.moveItem(at: currentURL, to: newURL)
-            
+
+            // Update recent files with new name
+            RecentFilesManager.shared.updateAfterSaveAsOrRename(from: currentURL, to: newURL)
+
             self.currentURL = newURL
-            
+
             print("✅ PDF renamed to: \(cleanName)")
-            
-            updateRecentFiles()
-            
+
+            updateRecentFiles() // Keep old system for backward compatibility
+
         } catch {
             print("❌ Failed to rename PDF: \(error.localizedDescription)")
         }

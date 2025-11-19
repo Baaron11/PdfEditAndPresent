@@ -121,6 +121,13 @@ struct PDFEditorScreenRefactored: View {
 
     @State private var pendingBackAction: Bool = false
 
+    // File menu Save As (separate from back button flow)
+    @State private var showFileMenuSaveAs = false
+    @State private var fileMenuSaveAsFilename = ""
+
+    // Change File Size sheet
+    @State private var showChangeFileSizeSheet = false
+
     // MARK: - File Menu State
     @State private var showInsertPageDialog = false
     @State private var showMergePDFPicker = false
@@ -201,7 +208,7 @@ struct PDFEditorScreenRefactored: View {
         })
         .alert("Save as Copy", isPresented: $showSaveAsCopyDialog, actions: {
             TextField("Filename", text: $saveAsCopyFilename)
-            
+
             Button("Save", action: {
                 pdfViewModel.saveAsNewDocument(
                     pdfViewModel.currentDocument ?? PDFDocument(),
@@ -211,7 +218,7 @@ struct PDFEditorScreenRefactored: View {
                 pdfViewModel.hasUnsavedChanges = false
                 dismiss()
             })
-            
+
             Button("Cancel", role: .cancel) {
                 pendingBackAction = false
                 showSavePrompt = true
@@ -219,6 +226,29 @@ struct PDFEditorScreenRefactored: View {
         }, message: {
             Text("Enter a name for the copy (without .pdf extension):")
         })
+        // File menu Save As - non-destructive cancel
+        .alert("Save As", isPresented: $showFileMenuSaveAs, actions: {
+            TextField("Filename", text: $fileMenuSaveAsFilename)
+
+            Button("Save", action: {
+                pdfViewModel.saveAsNewDocument(
+                    pdfViewModel.currentDocument ?? PDFDocument(),
+                    withName: fileMenuSaveAsFilename,
+                    pdfManager: pdfManager
+                )
+                // Do NOT dismiss or close - just stay in the editor
+            })
+
+            Button("Cancel", role: .cancel) {
+                // Do nothing - just dismiss the alert
+            }
+        }, message: {
+            Text("Enter a name for the copy (without .pdf extension):")
+        })
+        // Change File Size sheet
+        .sheet(isPresented: $showChangeFileSizeSheet) {
+            ChangeFileSizeSheet(pdfManager: pdfManager)
+        }
         .onTapGesture {
             if isEditingZoom {
                 commitZoomChange()
@@ -388,8 +418,8 @@ struct PDFEditorScreenRefactored: View {
 
             Button(action: {
                 let currentName = pdfViewModel.currentURL?.deletingPathExtension().lastPathComponent ?? "Untitled"
-                saveAsCopyFilename = "\(currentName)_copy"
-                showSaveAsCopyDialog = true
+                fileMenuSaveAsFilename = "\(currentName)_copy"
+                showFileMenuSaveAs = true
             }) {
                 Label("Save As...", systemImage: "square.and.arrow.up")
             }
@@ -397,9 +427,7 @@ struct PDFEditorScreenRefactored: View {
             Divider()
 
             Button(action: {
-                // TODO: Connect to Change File Size / Paper Size flow
-                // DocumentManager.shared.presentChangeFileSize()
-                showMarginSettings = true // Using margin settings as placeholder
+                showChangeFileSizeSheet = true
             }) {
                 Label("Change File Size...", systemImage: "doc.badge.gearshape")
             }

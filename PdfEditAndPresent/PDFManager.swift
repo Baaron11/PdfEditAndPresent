@@ -215,10 +215,91 @@ class PDFManager: ObservableObject {
         
         // ✅ Add default margin settings for new page
         marginSettings.append(MarginSettings())
-        
+
         regenerateThumbnails()
     }
-    
+
+    /// Set page size for all pages in the document
+    func setPageSize(widthPoints: Double, heightPoints: Double) {
+        guard let document = pdfDocument else {
+            print("❌ No document to resize")
+            return
+        }
+
+        guard document.pageCount > 0 else {
+            print("⚠️ Document has no pages")
+            return
+        }
+
+        print("📐 Resizing all pages to \(widthPoints) x \(heightPoints) points")
+
+        let newDocument = PDFDocument()
+        let newMediaBox = CGRect(x: 0, y: 0, width: widthPoints, height: heightPoints)
+
+        for i in 0..<document.pageCount {
+            guard let originalPage = document.page(at: i) else { continue }
+
+            // Create a new page with the desired size
+            let newPage = PDFPage()
+            newPage.setBounds(newMediaBox, for: .mediaBox)
+
+            // Get the original page content and draw it centered on the new page
+            let originalBounds = originalPage.bounds(for: .mediaBox)
+
+            // Calculate scaling to fit original content in new page
+            let scaleX = widthPoints / originalBounds.width
+            let scaleY = heightPoints / originalBounds.height
+            let scale = min(scaleX, scaleY, 1.0) // Don't scale up, only down if needed
+
+            let scaledWidth = originalBounds.width * scale
+            let scaledHeight = originalBounds.height * scale
+            let offsetX = (widthPoints - scaledWidth) / 2
+            let offsetY = (heightPoints - scaledHeight) / 2
+
+            // Render original page content onto new page
+            if let cgPage = originalPage.pageRef {
+                let renderer = UIGraphicsImageRenderer(size: CGSize(width: widthPoints, height: heightPoints))
+                let image = renderer.image { context in
+                    let ctx = context.cgContext
+
+                    // Fill with white background
+                    ctx.setFillColor(UIColor.white.cgColor)
+                    ctx.fill(CGRect(x: 0, y: 0, width: widthPoints, height: heightPoints))
+
+                    // Transform for PDF coordinate system (flip Y)
+                    ctx.translateBy(x: offsetX, y: heightPoints - offsetY)
+                    ctx.scaleBy(x: scale, y: -scale)
+
+                    // Draw the original page
+                    ctx.drawPDFPage(cgPage)
+                }
+
+                // Create PDF page from image
+                if let cgImage = image.cgImage {
+                    let imagePage = PDFPage(image: UIImage(cgImage: cgImage))
+                    if let finalPage = imagePage {
+                        newDocument.insert(finalPage, at: newDocument.pageCount)
+                    } else {
+                        newDocument.insert(newPage, at: newDocument.pageCount)
+                    }
+                } else {
+                    newDocument.insert(newPage, at: newDocument.pageCount)
+                }
+            } else {
+                newDocument.insert(newPage, at: newDocument.pageCount)
+            }
+        }
+
+        print("✅ Resized document to \(newDocument.pageCount) pages")
+
+        // Update document
+        self.updateDocument(newDocument)
+        regenerateThumbnails()
+
+        // Notify about document change
+        onDocumentChanged?()
+    }
+
     /// Delete a page at the specified index
     func deletePage(at index: Int) {
         guard let document = pdfDocument else {

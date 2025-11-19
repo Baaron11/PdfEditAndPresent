@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 // MARK: - PDF Welcome Screen (Fixed)
 struct PDFWelcomeScreen: View {
     @StateObject private var pdfViewModel = PDFViewModel()
+    @StateObject private var recentFilesManager = RecentFilesManager.shared
     @State private var showFilePicker = false
     @State private var navigateToEditor = false
     @State private var isLoading = false
@@ -114,30 +115,32 @@ struct PDFWelcomeScreen: View {
                     Spacer()
                     
                     // Recent Files (if available)
-                    if let recentFiles = pdfViewModel.recentFiles, !recentFiles.isEmpty {
+                    if !recentFilesManager.items.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
                             Text("Recent Files")
                                 .font(.system(size: 14, weight: .semibold))
                                 .foregroundColor(.secondary)
                                 .padding(.horizontal, 20)
-                            
+
                             ScrollView(.horizontal, showsIndicators: false) {
                                 HStack(spacing: 12) {
-                                    ForEach(recentFiles.prefix(5), id: \.self) { url in
+                                    ForEach(recentFilesManager.items.prefix(5), id: \.self) { recentFile in
                                         Button(action: {
-                                            isLoading = true
-                                            pdfViewModel.loadPDF(from: url)
-                                            // Ensure PDF is ready before navigating
-                                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                                navigateToEditor = true
-                                                isLoading = false
+                                            if let url = recentFilesManager.resolveURL(for: recentFile) {
+                                                isLoading = true
+                                                pdfViewModel.loadPDF(from: url)
+                                                // Ensure PDF is ready before navigating
+                                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                                    navigateToEditor = true
+                                                    isLoading = false
+                                                }
                                             }
                                         }) {
                                             VStack(spacing: 8) {
                                                 Image(systemName: "doc.pdf")
                                                     .font(.system(size: 24))
-                                                
-                                                Text(url.deletingPathExtension().lastPathComponent)
+
+                                                Text(recentFile.displayName.replacingOccurrences(of: ".pdf", with: ""))
                                                     .font(.system(size: 11, weight: .medium))
                                                     .lineLimit(1)
                                             }

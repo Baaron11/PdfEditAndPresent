@@ -112,12 +112,17 @@ final class DocumentManager: ObservableObject {
             return
         }
 
+        let oldURL = pdfViewModel?.currentURL
         let success = document.write(to: url)
 
         if success {
             pdfViewModel?.currentURL = url
             hasUnsavedChanges = false
             updateCurrentFileName()
+
+            // Update recent files
+            RecentFilesManager.shared.updateAfterSaveAsOrRename(from: oldURL, to: url)
+
             print("✅ Document saved as: \(url.lastPathComponent)")
         }
 

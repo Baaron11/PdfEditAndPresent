@@ -1246,9 +1246,8 @@ struct ContinuousScrollThumbnailSidebar: View {
                             }
                         }
                         
-                        addPageButton
-                        addPDFButton
-                        removePageButton
+                        // Slim action buttons
+                        sidebarActionButtons
                     }
                     .padding(8)
                 }
@@ -1411,82 +1410,37 @@ struct ContinuousScrollThumbnailSidebar: View {
         }
     }
     
+    // MARK: - Sidebar Action Buttons (Slim Style)
     @ViewBuilder
-    private var addPageButton: some View {
-        Button(action: { pdfManager.addBlankPage() }) {
-            VStack(spacing: 4) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(Color.white)
-                        .border(Color.gray.opacity(0.3), width: 1)
-                    
-                    Image(systemName: "plus")
-                        .font(.system(size: 32, weight: .semibold))
-                        .foregroundColor(.blue)
+    private var sidebarActionButtons: some View {
+        VStack(spacing: 12) {
+            Button {
+                pdfManager.addBlankPage()
+            } label: {
+                SidebarActionButton(systemImage: "plus", title: "Add Page")
+            }
+            .buttonStyle(SidebarActionButtonStyle())
+
+            Button {
+                showFilePicker = true
+            } label: {
+                SidebarActionButton(systemImage: "doc.badge.plus", title: "Add PDF")
+            }
+            .buttonStyle(SidebarActionButtonStyle())
+
+            Button {
+                isEditMode.toggle()
+                if !isEditMode {
+                    pageToDelete = nil
+                    draggedPageIndex = nil
                 }
-                .frame(height: 100)
-                
-                Text("Add Page")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(.primary)
+            } label: {
+                SidebarActionButton(systemImage: isEditMode ? "checkmark.circle.fill" : "nosign", title: isEditMode ? "Done" : "Remove...")
             }
-            .frame(maxWidth: .infinity)
-            .padding(8)
-            .background(Color.white)
-            .border(Color.gray.opacity(0.3), width: 1)
-            .cornerRadius(4)
+            .buttonStyle(SidebarActionButtonStyle())
         }
-    }
-    
-    @ViewBuilder
-    private var addPDFButton: some View {
-        Button(action: { showFilePicker = true }) {
-            VStack(spacing: 4) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(Color.white)
-                        .border(Color.gray.opacity(0.3), width: 1)
-                    
-                    Image(systemName: "doc.badge.plus")
-                        .font(.system(size: 28, weight: .semibold))
-                        .foregroundColor(.blue)
-                }
-                .frame(height: 100)
-                
-                Text("Add PDF")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(.primary)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(8)
-            .background(Color.white)
-            .border(Color.gray.opacity(0.3), width: 1)
-            .cornerRadius(4)
-        }
-    }
-    
-    @ViewBuilder
-    private var removePageButton: some View {
-        Button(action: {
-            isEditMode.toggle()
-            if !isEditMode {
-                pageToDelete = nil
-                draggedPageIndex = nil
-            }
-        }) {
-            HStack {
-                Image(systemName: isEditMode ? "checkmark.circle.fill" : "pencil.circle")
-                Text(isEditMode ? "Done" : "Remove Pages")
-                Spacer()
-            }
-            .foregroundColor(.blue)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .frame(maxWidth: .infinity)
-            .background(Color.white)
-            .border(Color.blue, width: 1)
-            .cornerRadius(4)
-        }
+        .padding(.horizontal, 8)
+        .padding(.top, 8)
     }
     
     private func insertPDF() {

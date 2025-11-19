@@ -1,31 +1,18 @@
-//
-//  ChangeFileSizeSheet.swift
-//  PdfEditAndPresent
-//
-//  Created by Claude on 11/19/25.
-//
-
 import SwiftUI
 
 struct ChangeFileSizeSheet: View {
     @Environment(\.dismiss) private var dismiss
-    @ObservedObject var pdfManager: PDFManager
 
-    @State private var unit: SizeUnit = .inches
-    @State private var selection: PagePreset = .letter
-    @State private var width: Double = 8.5
-    @State private var height: Double = 11.0
+    @State private var unit: Unit = .inches
+    @State private var preset: Preset = .letter
+    @State private var widthVal: Double = 8.5
+    @State private var heightVal: Double = 11.0
     @State private var isPortrait: Bool = true
 
-    enum SizeUnit: String, CaseIterable {
-        case inches = "in"
-        case millimeters = "mm"
-        case points = "pt"
-    }
-
-    enum PagePreset: String, CaseIterable {
+    enum Unit: String, CaseIterable { case inches, millimeters, points }
+    enum Preset: String, CaseIterable {
         case letter = "Letter (8.5×11 in)"
-        case legal = "Legal (8.5×14 in)"
+        case legal  = "Legal (8.5×14 in)"
         case tabloid = "Tabloid (11×17 in)"
         case a5 = "A5 (148×210 mm)"
         case a4 = "A4 (210×297 mm)"
@@ -33,354 +20,223 @@ struct ChangeFileSizeSheet: View {
         case a2 = "A2 (420×594 mm)"
         case a1 = "A1 (594×841 mm)"
         case custom = "Custom…"
+    }
 
-        var sizeInPoints: (width: Double, height: Double) {
-            switch self {
-            case .letter: return (8.5 * 72, 11.0 * 72)
-            case .legal: return (8.5 * 72, 14.0 * 72)
-            case .tabloid: return (11.0 * 72, 17.0 * 72)
-            case .a5: return (148 * 2.83465, 210 * 2.83465)
-            case .a4: return (210 * 2.83465, 297 * 2.83465)
-            case .a3: return (297 * 2.83465, 420 * 2.83465)
-            case .a2: return (420 * 2.83465, 594 * 2.83465)
-            case .a1: return (594 * 2.83465, 841 * 2.83465)
-            case .custom: return (8.5 * 72, 11.0 * 72)
-            }
+    var widthRange: ClosedRange<Double> {
+        switch unit {
+        case .inches: return 1.0...60.0
+        case .millimeters: return 10.0...1500.0
+        case .points: return 72.0...4320.0
         }
     }
+
+    var heightRange: ClosedRange<Double> { widthRange }
 
     var body: some View {
         NavigationStack {
             Form {
-                // Preset picker
-                Section("Page Size") {
-                    Picker("Preset", selection: $selection) {
-                        ForEach(PagePreset.allCases, id: \.self) { preset in
-                            Text(preset.rawValue).tag(preset)
-                        }
+                // Preset
+                Picker("Preset", selection: $preset) {
+                    ForEach(Preset.allCases, id: \.self) { p in
+                        Text(p.rawValue).tag(p)
                     }
-                    .pickerStyle(.wheel)
-                    .frame(height: 120)
-                    .onChange(of: selection) { _, newValue in
-                        applyPreset(newValue)
+                }
+                .onChange(of: preset) { applyPreset($0) }
+
+                // Units
+                Picker("Units", selection: $unit) {
+                    Text("in").tag(Unit.inches)
+                    Text("mm").tag(Unit.millimeters)
+                    Text("pt").tag(Unit.points)
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: unit) { _ in convertUnitsKeepingPoints() }
+
+                // Custom wheels (only when custom)
+                if preset == .custom {
+                    HStack(alignment: .top, spacing: 24) {
+                        WheelNumberPicker(title: "Width", value: $widthVal, step: stepForUnit(), range: widthRange)
+                        WheelNumberPicker(title: "Height", value: $heightVal, step: stepForUnit(), range: heightRange)
                     }
                 }
 
-                // Unit selector
-                Section("Units") {
-                    Picker("Units", selection: $unit) {
-                        Text("in").tag(SizeUnit.inches)
-                        Text("mm").tag(SizeUnit.millimeters)
-                        Text("pt").tag(SizeUnit.points)
-                    }
-                    .pickerStyle(.segmented)
-                    .onChange(of: unit) { _, _ in
-                        convertUnitsKeepingPoints()
-                    }
+                // Orientation
+                Toggle(isOn: $isPortrait) {
+                    Text(isPortrait ? "Portrait" : "Landscape")
                 }
+                .onChange(of: isPortrait) { _ in swapIfNeeded() }
 
-                // Custom size pickers
-                if selection == .custom {
-                    Section("Custom Size") {
-                        HStack(spacing: 16) {
-                            VStack {
-                                Text("Width")
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
-                                Picker("Width", selection: $width) {
-                                    ForEach(widthValues, id: \.self) { value in
-                                        Text(formatValue(value)).tag(value)
-                                    }
-                                }
-                                .pickerStyle(.wheel)
-                                .frame(height: 120)
-                            }
-
-                            VStack {
-                                Text("Height")
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
-                                Picker("Height", selection: $height) {
-                                    ForEach(heightValues, id: \.self) { value in
-                                        Text(formatValue(value)).tag(value)
-                                    }
-                                }
-                                .pickerStyle(.wheel)
-                                .frame(height: 120)
-                            }
-                        }
-                    }
-                }
-
-                // Orientation toggle
-                Section("Orientation") {
-                    HStack {
-                        Button(action: {
-                            if !isPortrait {
-                                isPortrait = true
-                                swapDimensions()
-                            }
-                        }) {
-                            VStack {
-                                Image(systemName: "rectangle.portrait")
-                                    .font(.title2)
-                                Text("Portrait")
-                                    .font(.caption)
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 8)
-                            .background(isPortrait ? Color.blue.opacity(0.2) : Color.clear)
-                            .cornerRadius(8)
-                        }
-                        .buttonStyle(.plain)
-
-                        Button(action: {
-                            if isPortrait {
-                                isPortrait = false
-                                swapDimensions()
-                            }
-                        }) {
-                            VStack {
-                                Image(systemName: "rectangle")
-                                    .font(.title2)
-                                Text("Landscape")
-                                    .font(.caption)
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 8)
-                            .background(!isPortrait ? Color.blue.opacity(0.2) : Color.clear)
-                            .cornerRadius(8)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-
-                // Size preview
-                Section("Preview") {
-                    SizePreviewView(width: width, height: height, unit: unit)
-                        .frame(height: 120)
-                }
+                // Preview
+                SizePreview(width: widthVal, height: heightVal, unit: unit)
+                    .frame(maxWidth: .infinity, minHeight: 120)
             }
             .navigationTitle("Change File Size")
-            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
+                    Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Apply") {
-                        let pts = convertToPoints()
-                        pdfManager.setPageSize(widthPoints: pts.width, heightPoints: pts.height)
+                        // Convert current UI values to points and APPLY them.
+                        let pts = convertToPoints(width: widthVal, height: heightVal, unit: unit)
+                        DocumentManager.shared.setPageSize(widthPoints: pts.w, heightPoints: pts.h)
                         dismiss()
                     }
                 }
             }
-            .onAppear {
-                loadCurrentPageSize()
-            }
         }
     }
 
-    // MARK: - Computed Properties
+    // MARK: - Helpers
 
-    private var widthValues: [Double] {
+    private func stepForUnit() -> Double {
         switch unit {
-        case .inches:
-            return Array(stride(from: 1.0, through: 60.0, by: 0.1))
-        case .millimeters:
-            return Array(stride(from: 10.0, through: 1500.0, by: 1.0))
-        case .points:
-            return Array(stride(from: 72.0, through: 4320.0, by: 1.0))
+        case .inches: return 0.1
+        case .millimeters: return 1.0
+        case .points: return 1.0
         }
     }
 
-    private var heightValues: [Double] {
-        widthValues
-    }
-
-    // MARK: - Helper Methods
-
-    private func formatValue(_ value: Double) -> String {
-        switch unit {
-        case .inches:
-            return String(format: "%.1f", value)
-        case .millimeters, .points:
-            return String(format: "%.0f", value)
+    private func swapIfNeeded() {
+        // If Landscape, ensure width >= height by swapping values; reverse in Portrait.
+        let shouldBeLandscape = !isPortrait
+        if shouldBeLandscape, heightVal > widthVal {
+            swap(&widthVal, &heightVal)
+        } else if !shouldBeLandscape == false, widthVal > heightVal, isPortrait {
+            // keep portrait with height >= width
+            swap(&widthVal, &heightVal)
         }
     }
 
-    private func loadCurrentPageSize() {
-        let currentSize = pdfManager.getCurrentPageSize()
-        let widthPts = Double(currentSize.width)
-        let heightPts = Double(currentSize.height)
-
-        // Convert to current unit
-        switch unit {
-        case .inches:
-            width = pointsToInches(widthPts)
-            height = pointsToInches(heightPts)
-        case .millimeters:
-            width = pointsToMillimeters(widthPts)
-            height = pointsToMillimeters(heightPts)
-        case .points:
-            width = widthPts
-            height = heightPts
-        }
-
-        isPortrait = height >= width
-
-        // Try to match a preset
-        matchPreset(widthPts: widthPts, heightPts: heightPts)
-    }
-
-    private func matchPreset(widthPts: Double, heightPts: Double) {
-        let tolerance = 1.0
-        for preset in PagePreset.allCases where preset != .custom {
-            let presetSize = preset.sizeInPoints
-            let w = isPortrait ? presetSize.width : presetSize.height
-            let h = isPortrait ? presetSize.height : presetSize.width
-
-            if abs(widthPts - w) < tolerance && abs(heightPts - h) < tolerance {
-                selection = preset
-                return
-            }
-        }
-        selection = .custom
-    }
-
-    private func applyPreset(_ preset: PagePreset) {
-        guard preset != .custom else { return }
-
-        let size = preset.sizeInPoints
-        let widthPts = isPortrait ? size.width : size.height
-        let heightPts = isPortrait ? size.height : size.width
-
-        switch unit {
-        case .inches:
-            width = pointsToInches(widthPts)
-            height = pointsToInches(heightPts)
-        case .millimeters:
-            width = pointsToMillimeters(widthPts)
-            height = pointsToMillimeters(heightPts)
-        case .points:
-            width = widthPts
-            height = heightPts
+    private func applyPreset(_ preset: Preset) {
+        switch preset {
+        case .letter:
+            unit = .inches; widthVal = 8.5; heightVal = 11.0; isPortrait = true
+        case .legal:
+            unit = .inches; widthVal = 8.5; heightVal = 14.0; isPortrait = true
+        case .tabloid:
+            unit = .inches; widthVal = 11.0; heightVal = 17.0; isPortrait = true
+        case .a5:
+            unit = .millimeters; widthVal = 148; heightVal = 210; isPortrait = true
+        case .a4:
+            unit = .millimeters; widthVal = 210; heightVal = 297; isPortrait = true
+        case .a3:
+            unit = .millimeters; widthVal = 297; heightVal = 420; isPortrait = true
+        case .a2:
+            unit = .millimeters; widthVal = 420; heightVal = 594; isPortrait = true
+        case .a1:
+            unit = .millimeters; widthVal = 594; heightVal = 841; isPortrait = true
+        case .custom:
+            // leave current selections as-is
+            break
         }
     }
 
     private func convertUnitsKeepingPoints() {
-        // First convert current values to points
-        let widthPts: Double
-        let heightPts: Double
-
-        // We need the previous unit to convert from
-        // Since we've already changed unit, we store points internally
-        // For simplicity, recalculate from preset or keep current
-        let currentPts = convertToPoints()
-
-        // Now convert from points to new unit
+        // Convert current width/height to points (from old unit), then back to new unit.
+        let pts = convertToPoints(width: widthVal, height: heightVal, unit: unit)
         switch unit {
         case .inches:
-            width = pointsToInches(currentPts.width)
-            height = pointsToInches(currentPts.height)
+            widthVal = pts.w / 72.0
+            heightVal = pts.h / 72.0
         case .millimeters:
-            width = pointsToMillimeters(currentPts.width)
-            height = pointsToMillimeters(currentPts.height)
+            widthVal = (pts.w / 72.0) * 25.4
+            heightVal = (pts.h / 72.0) * 25.4
         case .points:
-            width = currentPts.width
-            height = currentPts.height
+            widthVal = pts.w
+            heightVal = pts.h
         }
     }
 
-    private func swapDimensions() {
-        let temp = width
-        width = height
-        height = temp
-    }
-
-    private func convertToPoints() -> (width: Double, height: Double) {
+    private func convertToPoints(width: Double, height: Double, unit: Unit) -> (w: CGFloat, h: CGFloat) {
         switch unit {
         case .inches:
-            return (inchesToPoints(width), inchesToPoints(height))
+            return (CGFloat(width * 72.0), CGFloat(height * 72.0))
         case .millimeters:
-            return (millimetersToPoints(width), millimetersToPoints(height))
+            return (CGFloat((width / 25.4) * 72.0), CGFloat((height / 25.4) * 72.0))
         case .points:
-            return (width, height)
+            return (CGFloat(width), CGFloat(height))
         }
-    }
-
-    // MARK: - Unit Conversions
-
-    private func pointsToInches(_ pts: Double) -> Double {
-        return pts / 72.0
-    }
-
-    private func inchesToPoints(_ inches: Double) -> Double {
-        return inches * 72.0
-    }
-
-    private func pointsToMillimeters(_ pts: Double) -> Double {
-        return pts / 2.83465
-    }
-
-    private func millimetersToPoints(_ mm: Double) -> Double {
-        return mm * 2.83465
     }
 }
 
-// MARK: - Size Preview View
-struct SizePreviewView: View {
-    let width: Double
-    let height: Double
-    let unit: ChangeFileSizeSheet.SizeUnit
+// MARK: - Subviews
+
+struct WheelNumberPicker: View {
+    let title: String
+    @Binding var value: Double
+    let step: Double
+    let range: ClosedRange<Double>
 
     var body: some View {
-        GeometryReader { geometry in
-            let maxSize = min(geometry.size.width - 40, geometry.size.height - 40)
-            let aspectRatio = width / height
-            let previewWidth: CGFloat
-            let previewHeight: CGFloat
-
-            if aspectRatio > 1 {
-                previewWidth = maxSize
-                previewHeight = maxSize / CGFloat(aspectRatio)
-            } else {
-                previewHeight = maxSize
-                previewWidth = maxSize * CGFloat(aspectRatio)
-            }
-
-            VStack {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(Color.white)
-                        .shadow(color: .black.opacity(0.2), radius: 2, x: 0, y: 1)
-
-                    RoundedRectangle(cornerRadius: 4)
-                        .stroke(Color.gray.opacity(0.5), lineWidth: 1)
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.subheadline)
+            Picker("", selection: $value) {
+                ForEach(Array(stride(from: range.lowerBound, through: range.upperBound, by: step)), id: \.self) { v in
+                    Text(label(for: v)).tag(v)
                 }
-                .frame(width: previewWidth, height: previewHeight)
-
-                Text(sizeLabel)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .pickerStyle(.wheel)
+            .frame(maxHeight: 160)
         }
     }
 
-    private var sizeLabel: String {
-        let unitStr = unit.rawValue
-        switch unit {
-        case .inches:
-            return String(format: "%.1f × %.1f %@", width, height, unitStr)
-        case .millimeters, .points:
-            return String(format: "%.0f × %.0f %@", width, height, unitStr)
-        }
+    private func label(for v: Double) -> String {
+        step < 1 ? String(format: "%.1f", v) : String(format: "%.0f", v)
     }
 }
 
-#Preview {
-    ChangeFileSizeSheet(pdfManager: PDFManager())
+struct SizePreview: View {
+    let width: Double
+    let height: Double
+    let unit: ChangeFileSizeSheet.Unit
+
+    var body: some View {
+        let w = widthPoints()
+        let h = heightPoints()
+        let maxSide: CGFloat = 200
+        let scale = min(maxSide / max(w, h), 1)
+        let rectSize = CGSize(width: w * scale, height: h * scale)
+
+        return VStack {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8).stroke(.secondary, lineWidth: 1)
+                    .frame(width: rectSize.width, height: rectSize.height)
+                Text("\(display(width)) × \(display(height)) \(unitLabel())")
+                    .font(.footnote)
+            }
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    private func widthPoints() -> CGFloat {
+        switch unit {
+        case .inches: return CGFloat(width * 72.0)
+        case .millimeters: return CGFloat((width / 25.4) * 72.0)
+        case .points: return CGFloat(width)
+        }
+    }
+
+    private func heightPoints() -> CGFloat {
+        switch unit {
+        case .inches: return CGFloat(height * 72.0)
+        case .millimeters: return CGFloat((height / 25.4) * 72.0)
+        case .points: return CGFloat(height)
+        }
+    }
+
+    private func unitLabel() -> String {
+        switch unit {
+        case .inches: return "in"
+        case .millimeters: return "mm"
+        case .points: return "pt"
+        }
+    }
+
+    private func display(_ v: Double) -> String {
+        switch unit {
+        case .inches: return String(format: "%.1f", v)
+        case .millimeters, .points: return String(format: "%.0f", v)
+        }
+    }
 }

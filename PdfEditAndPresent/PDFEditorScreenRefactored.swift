@@ -26,6 +26,62 @@ extension View {
     }
 }
 
+// MARK: - Inner Shadow Modifier
+struct InnerShadow: ViewModifier {
+    var cornerRadius: CGFloat = 10
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(Color.black.opacity(0.08), lineWidth: 1)
+                    .blur(radius: 1)
+                    .offset(x: 0, y: 1)
+                    .mask(
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                            .fill(LinearGradient(colors: [.black, .clear],
+                                                 startPoint: .top, endPoint: .bottom))
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .stroke(Color.white.opacity(0.7), lineWidth: 1)
+                    .blur(radius: 1)
+                    .offset(x: 0, y: -1)
+                    .mask(
+                        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                            .fill(LinearGradient(colors: [.clear, .black],
+                                                 startPoint: .top, endPoint: .bottom))
+                    )
+            )
+    }
+}
+
+// MARK: - Sunken Title View
+struct SunkenTitle: View {
+    let fileName: String
+
+    var body: some View {
+        Text(fileName)
+            .font(.system(size: 15, weight: .semibold))
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color(.systemGray6))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .stroke(Color.secondary.opacity(0.15), lineWidth: 1)
+                    )
+                    .modifier(InnerShadow(cornerRadius: 10))
+            )
+            .accessibilityLabel(fileName)
+            .help(fileName) // Tooltip for full name on iPad
+    }
+}
+
 // MARK: - Refactored PDF Editor Screen (With Unsaved Changes Detection)
 struct PDFEditorScreenRefactored: View {
     @Environment(\.dismiss) var dismiss
@@ -62,8 +118,23 @@ struct PDFEditorScreenRefactored: View {
     
     @State private var showSaveAsCopyDialog = false
     @State private var saveAsCopyFilename = ""
-    
+
     @State private var pendingBackAction: Bool = false
+
+    // MARK: - File Menu State
+    @State private var showInsertPageDialog = false
+    @State private var showMergePDFPicker = false
+    @State private var showMergePositionDialog = false
+    @State private var selectedMergePDFURL: URL?
+    @State private var mergeInsertMethod: MergeInsertMethod = .atEnd
+    @State private var mergeInsertPosition: String = ""
+    @State private var showMergePageNumberInput = false
+
+    enum MergeInsertMethod {
+        case atFront
+        case atEnd
+        case afterPage
+    }
     
     var body: some View {
         VStack(spacing: 0) {
@@ -163,6 +234,74 @@ struct PDFEditorScreenRefactored: View {
                 commitTitleChange()
             }
         }
+        // MARK: - Merge PDF File Importer
+        .fileImporter(
+            isPresented: $showMergePDFPicker,
+            allowedContentTypes: [.pdf],
+            onCompletion: { result in
+                if case .success(let url) = result {
+                    selectedMergePDFURL = url
+                    showMergePositionDialog = true
+                }
+            }
+        )
+        .confirmationDialog("Insert Position", isPresented: $showMergePositionDialog) {
+            Button("At Front") {
+                mergeInsertMethod = .atFront
+                performMergePDF()
+            }
+            Button("At End") {
+                mergeInsertMethod = .atEnd
+                performMergePDF()
+            }
+            Button("After Page...") {
+                mergeInsertMethod = .afterPage
+                showMergePageNumberInput = true
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Where would you like to insert the PDF?")
+        }
+        .alert("After Which Page?", isPresented: $showMergePageNumberInput) {
+            TextField("Page number", text: $mergeInsertPosition)
+                .keyboardType(.numberPad)
+
+            Button("Insert") {
+                if !mergeInsertPosition.isEmpty {
+                    performMergePDF()
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Enter the page number after which to insert (1-\(pdfManager.pageCount))")
+        }
+    }
+
+    // MARK: - Merge PDF Helper
+    private func performMergePDF() {
+        guard let pdfURL = selectedMergePDFURL else { return }
+
+        let targetPosition: Int
+        switch mergeInsertMethod {
+        case .atFront:
+            targetPosition = 0
+        case .atEnd:
+            targetPosition = pdfManager.pageCount
+        case .afterPage:
+            if let pageNum = Int(mergeInsertPosition), pageNum > 0 && pageNum <= pdfManager.pageCount {
+                targetPosition = pageNum
+            } else {
+                return
+            }
+        }
+
+        pdfManager.insertPDF(from: pdfURL, at: targetPosition)
+
+        // Reset state
+        selectedMergePDFURL = nil
+        mergeInsertPosition = ""
+        mergeInsertMethod = .atEnd
+        showMergePageNumberInput = false
     }
     
     // MARK: - Toolbar View
@@ -195,7 +334,10 @@ struct PDFEditorScreenRefactored: View {
             }
             .frame(height: ToolbarMetrics.button)
 
-            // ✅ IMPROVED: Better text selection on edit
+            // MARK: File Menu
+            fileMenuView
+
+            // MARK: Sunken Title (double-tap to edit)
             if isEditingTitle {
                 TextField("", text: $editedTitle)
                     .textFieldStyle(.plain)
@@ -204,11 +346,9 @@ struct PDFEditorScreenRefactored: View {
                     .frame(maxWidth: .infinity)
                     .focused($isTitleFieldFocused)
                     .onAppear {
-                        // Set initial value and focus
                         editedTitle = pdfViewModel.currentURL?.deletingPathExtension().lastPathComponent ?? "Untitled"
                         isTitleFieldFocused = true
-                        
-                        // Select all text after a tiny delay to ensure TextField is ready
+
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                             if let textField = UIApplication.shared.windows.first?.rootViewController?.view.firstTextField {
                                 textField.selectAll(nil)
@@ -219,10 +359,8 @@ struct PDFEditorScreenRefactored: View {
                         commitTitleChange()
                     }
             } else {
-                Text(pdfViewModel.currentURL?.deletingPathExtension().lastPathComponent ?? "Untitled")
-                    .font(.system(size: 15, weight: .semibold))
+                SunkenTitle(fileName: pdfViewModel.currentURL?.deletingPathExtension().lastPathComponent ?? "Untitled")
                     .frame(maxWidth: .infinity)
-                    .lineLimit(1)
                     .onTapGesture(count: 2) {
                         isEditingTitle = true
                     }
@@ -236,6 +374,60 @@ struct PDFEditorScreenRefactored: View {
                     .cornerRadius(8)
                     .foregroundColor(.primary)
             }
+        }
+    }
+
+    // MARK: - File Menu
+    private var fileMenuView: some View {
+        Menu {
+            Button(action: {
+                pdfViewModel.saveCurrentDocument()
+            }) {
+                Label("Save", systemImage: "square.and.arrow.down")
+            }
+
+            Button(action: {
+                let currentName = pdfViewModel.currentURL?.deletingPathExtension().lastPathComponent ?? "Untitled"
+                saveAsCopyFilename = "\(currentName)_copy"
+                showSaveAsCopyDialog = true
+            }) {
+                Label("Save As...", systemImage: "square.and.arrow.up")
+            }
+
+            Divider()
+
+            Button(action: {
+                // TODO: Connect to Change File Size / Paper Size flow
+                // DocumentManager.shared.presentChangeFileSize()
+                showMarginSettings = true // Using margin settings as placeholder
+            }) {
+                Label("Change File Size...", systemImage: "doc.badge.gearshape")
+            }
+
+            Divider()
+
+            Button(action: {
+                showInsertPageDialog = true
+            }) {
+                Label("Insert Page...", systemImage: "doc.badge.plus")
+            }
+        } label: {
+            Text("File")
+                .font(.system(size: 14, weight: .semibold))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Color.gray.opacity(0.1))
+                .cornerRadius(8)
+                .foregroundColor(.primary)
+        }
+        .confirmationDialog("Insert Page", isPresented: $showInsertPageDialog, titleVisibility: .visible) {
+            Button("Insert Blank Page") {
+                pdfManager.addBlankPage()
+            }
+            Button("Merge PDF...") {
+                showMergePDFPicker = true
+            }
+            Button("Cancel", role: .cancel) {}
         }
     }
     

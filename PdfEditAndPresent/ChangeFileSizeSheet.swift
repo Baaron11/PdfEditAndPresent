@@ -2,73 +2,54 @@ import SwiftUI
 
 struct ChangeFileSizeSheet: View {
     @Environment(\.dismiss) private var dismiss
-
-    @State private var unit: Unit = .inches
-    @State private var preset: Preset = .letter
-    @State private var widthVal: Double = 8.5
-    @State private var heightVal: Double = 11.0
-    @State private var isPortrait: Bool = true
-
-    enum Unit: String, CaseIterable { case inches, millimeters, points }
-    enum Preset: String, CaseIterable {
-        case letter = "Letter (8.5×11 in)"
-        case legal  = "Legal (8.5×14 in)"
-        case tabloid = "Tabloid (11×17 in)"
-        case a5 = "A5 (148×210 mm)"
-        case a4 = "A4 (210×297 mm)"
-        case a3 = "A3 (297×420 mm)"
-        case a2 = "A2 (420×594 mm)"
-        case a1 = "A1 (594×841 mm)"
-        case custom = "Custom…"
-    }
-
-    var widthRange: ClosedRange<Double> {
-        switch unit {
-        case .inches: return 1.0...60.0
-        case .millimeters: return 10.0...1500.0
-        case .points: return 72.0...4320.0
-        }
-    }
-
-    var heightRange: ClosedRange<Double> { widthRange }
+    @State private var preset: PDFOptimizeOptions.Preset = .smaller
+    @State private var imageQuality: Double = 0.75
+    @State private var maxDPI: Double = 144
+    @State private var downsample = true
+    @State private var grayscale = false
+    @State private var stripMetadata = true
+    @State private var flatten = false
+    @State private var recompress = true
+    @State private var isWorking = false
+    @State private var errorMessage: String?
 
     var body: some View {
         NavigationStack {
             Form {
-                // Preset
                 Picker("Preset", selection: $preset) {
-                    ForEach(Preset.allCases, id: \.self) { p in
-                        Text(p.rawValue).tag(p)
-                    }
+                    Text("Original").tag(PDFOptimizeOptions.Preset.original)
+                    Text("Smaller").tag(PDFOptimizeOptions.Preset.smaller)
+                    Text("Smallest").tag(PDFOptimizeOptions.Preset.smallest)
+                    Text("Custom").tag(PDFOptimizeOptions.Preset.custom)
                 }
                 .onChange(of: preset) { applyPreset($0) }
 
-                // Units
-                Picker("Units", selection: $unit) {
-                    Text("in").tag(Unit.inches)
-                    Text("mm").tag(Unit.millimeters)
-                    Text("pt").tag(Unit.points)
-                }
-                .pickerStyle(.segmented)
-                .onChange(of: unit) { _ in convertUnitsKeepingPoints() }
-
-                // Custom wheels (only when custom)
                 if preset == .custom {
-                    HStack(alignment: .top, spacing: 24) {
-                        WheelNumberPicker(title: "Width", value: $widthVal, step: stepForUnit(), range: widthRange)
-                        WheelNumberPicker(title: "Height", value: $heightVal, step: stepForUnit(), range: heightRange)
+                    Section("Images") {
+                        HStack {
+                            Text("Image Quality")
+                            Slider(value: $imageQuality, in: 0.4...1.0, step: 0.05)
+                            Text("\(Int(imageQuality * 100))%")
+                                .frame(width: 40, alignment: .trailing)
+                        }
+                        HStack {
+                            Text("Max Image DPI")
+                            Slider(value: $maxDPI, in: 72...600, step: 12)
+                            Text("\(Int(maxDPI))")
+                                .frame(width: 40, alignment: .trailing)
+                        }
+                        Toggle("Downsample Images", isOn: $downsample)
+                        Toggle("Grayscale Images", isOn: $grayscale)
                     }
+                    Section("Other") {
+                        Toggle("Strip Metadata", isOn: $stripMetadata)
+                        Toggle("Flatten Annotations", isOn: $flatten)
+                        Toggle("Recompress Streams", isOn: $recompress)
+                    }
+                } else {
+                    // Brief summary of what the preset will do
+                    PresetSummaryView(preset: preset)
                 }
-
-                // Orientation
-                Toggle(isOn: $isPortrait) {
-                    Text(isPortrait ? "Portrait" : "Landscape")
-                }
-                .onChange(of: isPortrait) { _ in swapIfNeeded() }
-
-                // Preview
-                SizePreview(width: widthVal, height: heightVal, unit: unit)
-                    .frame(maxWidth: .infinity, minHeight: 120)
             }
             .navigationTitle("Change File Size")
             .toolbar {
@@ -76,167 +57,66 @@ struct ChangeFileSizeSheet: View {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Apply") {
-                        // Convert current UI values to points and APPLY them.
-                        let pts = convertToPoints(width: widthVal, height: heightVal, unit: unit)
-                        DocumentManager.shared.setPageSize(widthPoints: pts.w, heightPoints: pts.h)
-                        dismiss()
+                    Button(isWorking ? "Applying…" : "Apply") {
+                        let opts = currentOptions()
+                        isWorking = true
+                        DocumentManager.shared.rewritePDF(with: opts) { result in
+                            isWorking = false
+                            switch result {
+                            case .success:
+                                dismiss()
+                            case .failure(let err):
+                                errorMessage = err.localizedDescription
+                            }
+                        }
                     }
+                    .disabled(isWorking)
                 }
             }
+            .alert("Optimization Failed", isPresented: .constant(errorMessage != nil), actions: {
+                Button("OK", role: .cancel) { errorMessage = nil }
+            }, message: { Text(errorMessage ?? "") })
         }
     }
 
-    // MARK: - Helpers
-
-    private func stepForUnit() -> Double {
-        switch unit {
-        case .inches: return 0.1
-        case .millimeters: return 1.0
-        case .points: return 1.0
-        }
-    }
-
-    private func swapIfNeeded() {
-        // If Landscape, ensure width >= height by swapping values; reverse in Portrait.
-        let shouldBeLandscape = !isPortrait
-        if shouldBeLandscape, heightVal > widthVal {
-            swap(&widthVal, &heightVal)
-        } else if !shouldBeLandscape == false, widthVal > heightVal, isPortrait {
-            // keep portrait with height >= width
-            swap(&widthVal, &heightVal)
-        }
-    }
-
-    private func applyPreset(_ preset: Preset) {
-        switch preset {
-        case .letter:
-            unit = .inches; widthVal = 8.5; heightVal = 11.0; isPortrait = true
-        case .legal:
-            unit = .inches; widthVal = 8.5; heightVal = 14.0; isPortrait = true
-        case .tabloid:
-            unit = .inches; widthVal = 11.0; heightVal = 17.0; isPortrait = true
-        case .a5:
-            unit = .millimeters; widthVal = 148; heightVal = 210; isPortrait = true
-        case .a4:
-            unit = .millimeters; widthVal = 210; heightVal = 297; isPortrait = true
-        case .a3:
-            unit = .millimeters; widthVal = 297; heightVal = 420; isPortrait = true
-        case .a2:
-            unit = .millimeters; widthVal = 420; heightVal = 594; isPortrait = true
-        case .a1:
-            unit = .millimeters; widthVal = 594; heightVal = 841; isPortrait = true
+    private func applyPreset(_ p: PDFOptimizeOptions.Preset) {
+        switch p {
+        case .original:
+            imageQuality = 1.0; maxDPI = 600; downsample = false; grayscale = false; stripMetadata = false; flatten = false; recompress = false
+        case .smaller:
+            imageQuality = 0.75; maxDPI = 144; downsample = true; grayscale = false; stripMetadata = true; flatten = false; recompress = true
+        case .smallest:
+            imageQuality = 0.6; maxDPI = 96; downsample = true; grayscale = false; stripMetadata = true; flatten = true; recompress = true
         case .custom:
-            // leave current selections as-is
             break
         }
     }
 
-    private func convertUnitsKeepingPoints() {
-        // Convert current width/height to points (from old unit), then back to new unit.
-        let pts = convertToPoints(width: widthVal, height: heightVal, unit: unit)
-        switch unit {
-        case .inches:
-            widthVal = pts.w / 72.0
-            heightVal = pts.h / 72.0
-        case .millimeters:
-            widthVal = (pts.w / 72.0) * 25.4
-            heightVal = (pts.h / 72.0) * 25.4
-        case .points:
-            widthVal = pts.w
-            heightVal = pts.h
-        }
-    }
-
-    private func convertToPoints(width: Double, height: Double, unit: Unit) -> (w: CGFloat, h: CGFloat) {
-        switch unit {
-        case .inches:
-            return (CGFloat(width * 72.0), CGFloat(height * 72.0))
-        case .millimeters:
-            return (CGFloat((width / 25.4) * 72.0), CGFloat((height / 25.4) * 72.0))
-        case .points:
-            return (CGFloat(width), CGFloat(height))
-        }
+    private func currentOptions() -> PDFOptimizeOptions {
+        PDFOptimizeOptions(
+            preset: preset,
+            imageQuality: imageQuality,
+            maxImageDPI: maxDPI,
+            downsampleImages: downsample,
+            grayscaleImages: grayscale,
+            stripMetadata: stripMetadata,
+            flattenAnnotations: flatten,
+            recompressStreams: recompress
+        )
     }
 }
 
-// MARK: - Subviews
-
-struct WheelNumberPicker: View {
-    let title: String
-    @Binding var value: Double
-    let step: Double
-    let range: ClosedRange<Double>
-
+struct PresetSummaryView: View {
+    let preset: PDFOptimizeOptions.Preset
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.subheadline)
-            Picker("", selection: $value) {
-                ForEach(Array(stride(from: range.lowerBound, through: range.upperBound, by: step)), id: \.self) { v in
-                    Text(label(for: v)).tag(v)
-                }
+        let desc: String = {
+            switch preset {
+            case .original: return "No quality changes. Keeps original size."
+            case .smaller:  return "Recompress images (~75%), downsample to ~144 dpi, strip metadata."
+            case .smallest: return "Aggressive recompress (~60%), downsample to ~96 dpi, strip metadata, flatten annotations."
+            case .custom:   return ""
             }
-            .pickerStyle(.wheel)
-            .frame(maxHeight: 160)
-        }
-    }
-
-    private func label(for v: Double) -> String {
-        step < 1 ? String(format: "%.1f", v) : String(format: "%.0f", v)
-    }
-}
-
-struct SizePreview: View {
-    let width: Double
-    let height: Double
-    let unit: ChangeFileSizeSheet.Unit
-
-    var body: some View {
-        let w = widthPoints()
-        let h = heightPoints()
-        let maxSide: CGFloat = 200
-        let scale = min(maxSide / max(w, h), 1)
-        let rectSize = CGSize(width: w * scale, height: h * scale)
-
-        return VStack {
-            ZStack {
-                RoundedRectangle(cornerRadius: 8).stroke(.secondary, lineWidth: 1)
-                    .frame(width: rectSize.width, height: rectSize.height)
-                Text("\(display(width)) × \(display(height)) \(unitLabel())")
-                    .font(.footnote)
-            }
-            .frame(maxWidth: .infinity)
-        }
-    }
-
-    private func widthPoints() -> CGFloat {
-        switch unit {
-        case .inches: return CGFloat(width * 72.0)
-        case .millimeters: return CGFloat((width / 25.4) * 72.0)
-        case .points: return CGFloat(width)
-        }
-    }
-
-    private func heightPoints() -> CGFloat {
-        switch unit {
-        case .inches: return CGFloat(height * 72.0)
-        case .millimeters: return CGFloat((height / 25.4) * 72.0)
-        case .points: return CGFloat(height)
-        }
-    }
-
-    private func unitLabel() -> String {
-        switch unit {
-        case .inches: return "in"
-        case .millimeters: return "mm"
-        case .points: return "pt"
-        }
-    }
-
-    private func display(_ v: Double) -> String {
-        switch unit {
-        case .inches: return String(format: "%.1f", v)
-        case .millimeters, .points: return String(format: "%.0f", v)
-        }
+        }()
+        return Text(desc).font(.footnote).foregroundStyle(.secondary)
     }
 }

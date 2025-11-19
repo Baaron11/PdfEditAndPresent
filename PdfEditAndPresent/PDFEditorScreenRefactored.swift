@@ -125,8 +125,13 @@ struct PDFEditorScreenRefactored: View {
     @State private var showFileMenuSaveAs = false
     @State private var fileMenuSaveAsFilename = ""
 
-    // Change File Size sheet
+    // Change Page Size and Change File Size sheets
+    @State private var showChangePageSizeSheet = false
     @State private var showChangeFileSizeSheet = false
+
+    // Save As exporter for new/untitled documents
+    @State private var showSaveAsExporter = false
+    @State private var saveAsCompletionHandler: ((Bool) -> Void)?
 
     // MARK: - File Menu State
     @State private var showInsertPageDialog = false
@@ -152,15 +157,24 @@ struct PDFEditorScreenRefactored: View {
             print("📄 Editor view appeared - initializing PDF")
             pdfManager.setPDFDocument(pdfViewModel.currentDocument)
             pdfViewModel.setupPDFManager(pdfManager)
-            
+
+            // Configure DocumentManager
+            DocumentManager.shared.configure(with: pdfViewModel, pdfManager: pdfManager)
+
+            // Set up Save As callback for new/untitled documents
+            DocumentManager.shared.onSaveAsRequested = { completion in
+                saveAsCompletionHandler = completion
+                showSaveAsExporter = true
+            }
+
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                 let pageSize = pdfManager.getCurrentPageSize()
                 editorData.initializeController(CGRect(origin: .zero, size: pageSize))
-                
+
                 withAnimation {
                     isInitialized = true
                 }
-                
+
                 print("✅ PDF editor initialized successfully")
             }
         }
@@ -184,22 +198,20 @@ struct PDFEditorScreenRefactored: View {
             MarginSettingsSheet(pdfManager: pdfManager)
         }
         .alert("Save Changes?", isPresented: $showSavePrompt, actions: {
-            Button("Save Changes", action: {
-                pdfViewModel.saveCurrentDocument()
-                dismiss()
+            Button("Save", action: {
+                DocumentManager.shared.saveOrPromptIfUntitled { success in
+                    if success {
+                        dismiss()
+                    }
+                    // If not successful (cancelled Save As), stay in editor
+                }
             })
-            
-            Button("Save as Copy", action: {
-                let currentName = pdfViewModel.currentURL?.deletingPathExtension().lastPathComponent ?? "Untitled"
-                saveAsCopyFilename = "\(currentName)_copy"
-                showSaveAsCopyDialog = true
-            })
-            
-            Button("Exit Without Saving", role: .destructive, action: {
+
+            Button("Don't Save", role: .destructive, action: {
                 pdfViewModel.hasUnsavedChanges = false
                 dismiss()
             })
-            
+
             Button("Cancel", role: .cancel) {
                 pendingBackAction = false
             }
@@ -245,9 +257,31 @@ struct PDFEditorScreenRefactored: View {
         }, message: {
             Text("Enter a name for the copy (without .pdf extension):")
         })
-        // Change File Size sheet
+        // Change Page Size sheet
+        .sheet(isPresented: $showChangePageSizeSheet) {
+            ChangePageSizeSheet()
+        }
+        // Change File Size sheet (PDF optimization)
         .sheet(isPresented: $showChangeFileSizeSheet) {
-            ChangeFileSizeSheet(pdfManager: pdfManager)
+            ChangeFileSizeSheet()
+        }
+        // Save As exporter for new/untitled documents
+        .fileExporter(
+            isPresented: $showSaveAsExporter,
+            document: PDFFileDocument(pdfDocument: pdfViewModel.currentDocument),
+            contentType: .pdf,
+            defaultFilename: "Untitled"
+        ) { result in
+            switch result {
+            case .success(let url):
+                pdfViewModel.currentURL = url
+                pdfViewModel.hasUnsavedChanges = false
+                DocumentManager.shared.updateCurrentFileName()
+                saveAsCompletionHandler?(true)
+            case .failure:
+                saveAsCompletionHandler?(false)
+            }
+            saveAsCompletionHandler = nil
         }
         .onTapGesture {
             if isEditingZoom {
@@ -411,7 +445,7 @@ struct PDFEditorScreenRefactored: View {
     private var fileMenuView: some View {
         Menu {
             Button(action: {
-                pdfViewModel.saveCurrentDocument()
+                DocumentManager.shared.saveOrPromptIfUntitled()
             }) {
                 Label("Save", systemImage: "square.and.arrow.down")
             }
@@ -425,6 +459,12 @@ struct PDFEditorScreenRefactored: View {
             }
 
             Divider()
+
+            Button(action: {
+                showChangePageSizeSheet = true
+            }) {
+                Label("Change Page Size...", systemImage: "arrow.up.left.and.arrow.down.right")
+            }
 
             Button(action: {
                 showChangeFileSizeSheet = true

@@ -48,8 +48,24 @@ struct PrintPreviewSheet: View {
 
     @State private var isPrinting = false
 
+    // Share sheet state
+    @State private var shareItems: [Any] = []
+    @State private var showShareSheet = false
+
     private var pageCount: Int { pdfManager.pdfDocument?.pageCount ?? 0 }
     private var jobName: String { pdfManager.fileURL?.lastPathComponent ?? "Untitled.pdf" }
+
+    private var previewLabels: [String] {
+        guard let base = pdfManager.pdfDocument else { return [] }
+        switch choice {
+        case .all:
+            return (1...base.pageCount).map { "Page \($0)" }
+        case .current:
+            return ["Page \(pdfManager.editorCurrentPage)"]
+        case .custom:
+            return customPages.map { "Page \($0)" }
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -127,6 +143,9 @@ struct PrintPreviewSheet: View {
             .onChange(of: choice) { _, _ in rebuildPreviewDocument() }
             .onChange(of: customPages) { _, _ in if choice == .custom { rebuildPreviewDocument() } }
             .onChange(of: pdfManager.editorCurrentPage) { _, _ in if choice == .current { rebuildPreviewDocument() } }
+            .sheet(isPresented: $showShareSheet) {
+                ShareSheet(activityItems: shareItems)
+            }
         }
     }
 
@@ -230,7 +249,7 @@ struct PrintPreviewSheet: View {
     private var preview: some View {
         ZStack {
             if let doc = previewDoc {
-                ContinuousPDFPreview(document: doc, currentPage: $displayPage)
+                LabeledContinuousPDFPreview(document: doc, labels: previewLabels, currentPage: $displayPage)
                     .background(Color(.secondarySystemBackground))
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             } else {
@@ -302,6 +321,7 @@ struct PrintPreviewSheet: View {
     // MARK: - Actions
 
     private func shareSelection() {
+        // Build the subset data exactly like printing:
         let baseData: Data?
         switch choice {
         case .all:
@@ -309,8 +329,7 @@ struct PrintPreviewSheet: View {
         case .current:
             baseData = pdfManager.subsetPDFData(for: .current(pdfManager.editorCurrentPage))
         case .custom:
-            if customPages.isEmpty { baseData = nil }
-            else {
+            if customPages.isEmpty { baseData = nil } else {
                 let sub = PDFDocument()
                 var insert = 0
                 for p in customPages.sorted() {
@@ -321,34 +340,30 @@ struct PrintPreviewSheet: View {
                 baseData = sub.dataRepresentation()
             }
         }
+        guard var data = baseData else { return }
 
-        guard let baseData = baseData else { return }
-
-        let presentActivity: (Data) -> Void = { data in
-            let activityVC = UIActivityViewController(activityItems: [data], applicationActivities: nil)
-            activityVC.excludedActivityTypes = []
-            if let scene = UIApplication.shared.connectedScenes
-                .compactMap({ $0 as? UIWindowScene })
-                .first(where: { $0.activationState == .foregroundActive }),
-               let root = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController {
-                if let pop = activityVC.popoverPresentationController {
-                    pop.sourceView = root.view
-                    pop.sourceRect = CGRect(x: root.view.bounds.midX, y: 10, width: 1, height: 1)
-                    pop.permittedArrowDirections = []
-                }
-                root.present(activityVC, animated: true)
+        let proceed: (Data) -> Void = { readyData in
+            // Write to a temp file so share extensions can pick it up.
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("PdfEditAndPresent_share_\(UUID().uuidString).pdf")
+            do {
+                try readyData.write(to: url)
+                self.shareItems = [url]
+                self.showShareSheet = true
+            } catch {
+                // Silently fail; optional alert if you want
             }
         }
 
         if qualityPreset == .original {
-            presentActivity(baseData)
+            proceed(data)
         } else {
             let opts = currentOptimizeOptions()
-            pdfManager.optimizePDFData(baseData, options: opts) { result in
+            pdfManager.optimizePDFData(data, options: opts) { result in
                 DispatchQueue.main.async {
                     switch result {
-                    case .success(let optimized): presentActivity(optimized)
-                    case .failure: presentActivity(baseData)
+                    case .success(let optimized): proceed(optimized)
+                    case .failure: proceed(data)
                     }
                 }
             }

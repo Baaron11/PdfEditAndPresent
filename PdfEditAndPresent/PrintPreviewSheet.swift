@@ -15,7 +15,7 @@ struct PrintPreviewSheet: View {
     @State private var customInput: String = ""        // e.g. "1-3,5,8-9"
     @State private var customPages: [Int] = []         // exact pages to print (1-based)
     @State private var customWarning: String? = nil
-    @State private var customInputCancellable: AnyCancellable?
+    @State private var customDebounce: DispatchWorkItem?
     @FocusState private var customFieldFocused: Bool
 
     // Printer button anchor
@@ -145,18 +145,14 @@ struct PrintPreviewSheet: View {
                             .textInputAutocapitalization(.never)
                             .keyboardType(.numbersAndPunctuation)
                             .focused($customFieldFocused)
-                            .onAppear {
+                            .onChange(of: customInput) { _, _ in
                                 // Debounce parsing so the field keeps focus while typing
-                                customInputCancellable = Just(customInput)
-                                    .merge(with: $customInput.dropFirst().eraseToAnyPublisher())
-                                    .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
-                                    .sink { _ in
-                                        parseCustomPages(keepFocus: true)
-                                    }
-                                // Ensure we keep focus when the user enters Custom
-                                DispatchQueue.main.async { customFieldFocused = true }
+                                customDebounce?.cancel()
+                                let work = DispatchWorkItem { parseCustomPages(keepFocus: true) }
+                                customDebounce = work
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.30, execute: work)
                             }
-                            .onDisappear { customInputCancellable?.cancel() }
+                            .onAppear { DispatchQueue.main.async { customFieldFocused = true } }
 
                         if let warning = customWarning {
                             Text(warning).font(.footnote).foregroundStyle(.red)
@@ -504,7 +500,7 @@ extension PrintPreviewSheet {
             if token.contains("-") {
                 let parts = token.split(separator: "-")
                 guard parts.count == 2, let a = Int(parts[0]), let b = Int(parts[1]) else {
-                    customWarning = "Invalid range near "\(token)""; continue
+                    customWarning = "Invalid range near \"\(token)\""; continue
                 }
                 let lo = clamp(min(a, b), 1, pageCount)
                 let hi = clamp(max(a, b), 1, pageCount)
@@ -512,7 +508,7 @@ extension PrintPreviewSheet {
             } else if let p = Int(token) {
                 pages.insert(clamp(p, 1, pageCount))
             } else {
-                customWarning = "Invalid token "\(token)""
+                customWarning = "Invalid token \"\(token)\""
             }
         }
 

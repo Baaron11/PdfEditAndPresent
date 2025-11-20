@@ -87,12 +87,21 @@ struct PrintPreviewSheet: View {
                 }
             }
             .navigationTitle("Print Preview")
+            .toolbarTitleDisplayMode(.inline)  // saves horizontal space
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                // Back button (replaces the old .cancellationAction "Cancel")
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Label("Back", systemImage: "chevron.left")
+                            .labelStyle(.titleAndIcon)   // text + chevron
+                    }
+                    .buttonStyle(.bordered)             // neutral, like old Cancel
+                    .controlSize(.regular)
                 }
 
-                // Printer dropdown between Cancel and right controls
+                // Center: printer selector (unchanged)
                 ToolbarItem(placement: .principal) {
                     ZStack(alignment: .center) {
                         Button {
@@ -104,19 +113,25 @@ struct PrintPreviewSheet: View {
                                 .labelStyle(.titleAndIcon)
                         }
                         .buttonStyle(.bordered)
+                        .controlSize(.regular)
+
                         ViewAnchor(view: $printerButtonHost).allowsHitTesting(false)
                     }
                 }
 
-                ToolbarItem(placement: .confirmationAction) {
+                // Right side: Share / As PDF / Print (neutral bordered; no blue fill)
+                ToolbarItemGroup(placement: .navigationBarTrailing) {
                     HStack(spacing: 8) {
-                        // Share button
+                        // Share
                         Button {
                             shareSelection()
                         } label: {
                             Image(systemName: "square.and.arrow.up")
+                                .imageScale(.medium)
+                                .accessibilityLabel("Share")
                         }
                         .buttonStyle(.bordered)
+                        .controlSize(.regular)
 
                         // As PDF
                         Button("As PDF") {
@@ -125,16 +140,20 @@ struct PrintPreviewSheet: View {
                             }
                         }
                         .buttonStyle(.bordered)
+                        .controlSize(.regular)
 
                         // Print
-                        Button(isPrinting ? "Printing..." : "Print") {
+                        Button("Print") {
                             startPrint()
                         }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(pdfManager.pdfDocument == nil || pageCount == 0 || (choice == .custom && customPages.isEmpty))
+                        .disabled(pdfManager.pdfDocument == nil
+                                  || (choice == .custom && customPages.isEmpty))
+                        .buttonStyle(.bordered)     // <- was .borderedProminent
+                        .controlSize(.regular)
                     }
                 }
             }
+            .tint(.secondary)  // gives bordered buttons a grey accent rather than blue
             .onAppear {
                 currentPage = max(1, pdfManager.editorCurrentPage)
                 applyQualityPreset(qualityPreset)

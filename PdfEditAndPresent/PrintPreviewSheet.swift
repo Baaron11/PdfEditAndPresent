@@ -147,6 +147,7 @@ struct PrintPreviewSheet: View {
             .onChange(of: paperSize) { _, _ in rebuildPreviewDocument() }
             .onChange(of: pagesPerSheet) { _, _ in rebuildPreviewDocument() }
             .onChange(of: borderStyle) { _, _ in rebuildPreviewDocument() }
+            .onChange(of: orientation) { _, _ in rebuildPreviewDocument() }
             .sheet(isPresented: $showShareSheet) {
                 ShareSheet(items: shareItems)
             }
@@ -301,7 +302,8 @@ struct PrintPreviewSheet: View {
         let composed = PreviewComposer.compose(subset: subset,
                                                paperSize: paperSize,
                                                pagesPerSheet: pagesPerSheet,
-                                               border: borderStyle)
+                                               border: borderStyle,
+                                               orientation: orientation)
         previewDoc = composed ?? subset
         displayPage = min(max(1, displayPage), previewDoc?.pageCount ?? 1)
     }

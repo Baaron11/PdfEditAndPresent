@@ -5,14 +5,36 @@ struct PreviewComposer {
     static func compose(subset source: PDFDocument,
                         paperSize: PDFManager.PaperSize,
                         pagesPerSheet: Int,
-                        border: PDFManager.BorderStyle) -> PDFDocument? {
+                        border: PDFManager.BorderStyle,
+                        orientation: PDFManager.PageOrientation) -> PDFDocument? {
+
+        // 1) Base paper rect for portrait
+        let portraitRect: CGRect = {
+            switch paperSize {
+            case .systemDefault: return CGRect(x: 0, y: 0, width: 612, height: 792) // Letter fallback
+            case .letter:        return CGRect(x: 0, y: 0, width: 612, height: 792)
+            case .legal:         return CGRect(x: 0, y: 0, width: 612, height: 1008)
+            case .a4:            return CGRect(x: 0, y: 0, width: 595, height: 842)
+            }
+        }()
+
+        // 2) Decide orientation
+        let decidedOrientation: PDFManager.PageOrientation = {
+            switch orientation {
+            case .portrait, .landscape: return orientation
+            case .auto:
+                if let first = source.page(at: 0) {
+                    let b = first.bounds(for: .mediaBox)
+                    return (b.width > b.height) ? .landscape : .portrait
+                }
+                return .portrait
+            }
+        }()
 
         let paperRect: CGRect = {
-            switch paperSize {
-            case .systemDefault: return CGRect(x: 0, y: 0, width: 612, height: 792) // Letter fallback for preview
-            case .letter: return CGRect(x: 0, y: 0, width: 612, height: 792)
-            case .legal:  return CGRect(x: 0, y: 0, width: 612, height: 1008)
-            case .a4:     return CGRect(x: 0, y: 0, width: 595, height: 842)
+            switch decidedOrientation {
+            case .portrait, .auto: return portraitRect
+            case .landscape:       return CGRect(x: 0, y: 0, width: portraitRect.height, height: portraitRect.width)
             }
         }()
 

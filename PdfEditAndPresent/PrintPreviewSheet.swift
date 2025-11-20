@@ -56,13 +56,14 @@ struct PrintPreviewSheet: View {
     private var jobName: String { pdfManager.fileURL?.lastPathComponent ?? "Untitled.pdf" }
 
     private var previewLabels: [String] {
-        guard let base = pdfManager.pdfDocument else { return [] }
         switch choice {
         case .all:
-            return (1...base.pageCount).map { "Page \($0)" }
+            // Show 1..N (sheet pages after composition)
+            return (1...(previewDoc?.pageCount ?? 1)).map { "Page \($0)" }
         case .current:
             return ["Page \(pdfManager.editorCurrentPage)"]
         case .custom:
+            // Use original page numbers for user clarity
             return customPages.map { "Page \($0)" }
         }
     }
@@ -143,8 +144,11 @@ struct PrintPreviewSheet: View {
             .onChange(of: choice) { _, _ in rebuildPreviewDocument() }
             .onChange(of: customPages) { _, _ in if choice == .custom { rebuildPreviewDocument() } }
             .onChange(of: pdfManager.editorCurrentPage) { _, _ in if choice == .current { rebuildPreviewDocument() } }
+            .onChange(of: paperSize) { _, _ in rebuildPreviewDocument() }
+            .onChange(of: pagesPerSheet) { _, _ in rebuildPreviewDocument() }
+            .onChange(of: borderStyle) { _, _ in rebuildPreviewDocument() }
             .sheet(isPresented: $showShareSheet) {
-                ShareSheet(activityItems: shareItems)
+                ShareSheet(items: shareItems)
             }
         }
     }
@@ -153,7 +157,7 @@ struct PrintPreviewSheet: View {
 
     private var controls: some View {
         Form {
-                Section("Pages") {
+            Section("Pages") {
                 RadioRow(title: "All Pages", isOn: choice == .all) { choice = .all }
                 RadioRow(title: "Custom", isOn: choice == .custom) { choice = .custom }
                 RadioRow(title: "Current Page Only", isOn: choice == .current) { choice = .current }
@@ -184,7 +188,7 @@ struct PrintPreviewSheet: View {
             Section("Options") {
                 Stepper("Copies: \(copies)", value: $copies, in: 1...99)
                 Toggle("Color", isOn: $color)
-                Picker("Double Sided", selection: $duplex) {      // renamed; default shown as "No"
+                Picker("Double Sided", selection: $duplex) {
                     Text("No").tag(PDFManager.DuplexMode.none)
                     Text("Short Edge").tag(PDFManager.DuplexMode.shortEdge)
                     Text("Long Edge").tag(PDFManager.DuplexMode.longEdge)
@@ -194,6 +198,11 @@ struct PrintPreviewSheet: View {
                     Text("Portrait").tag(PDFManager.PageOrientation.portrait)
                     Text("Landscape").tag(PDFManager.PageOrientation.landscape)
                 }
+                Toggle("Annotations", isOn: $includeAnnotations)
+                    .tint(.accentColor)
+            }
+
+            Section("Layout") {
                 Picker("Paper Size", selection: $paperSize) {
                     Text("System Default").tag(PDFManager.PaperSize.systemDefault)
                     Text("Letter").tag(PDFManager.PaperSize.letter)
@@ -210,9 +219,6 @@ struct PrintPreviewSheet: View {
                     Text("Double HairLine").tag(PDFManager.BorderStyle.doubleHair)
                     Text("Double Thin Line").tag(PDFManager.BorderStyle.doubleThin)
                 }
-                Toggle("Annotations", isOn: $includeAnnotations)
-                    .tint(.accentColor)
-                // QUALITY
                 Picker("Quality", selection: $qualityPreset) {
                     Text("Original").tag(PDFOptimizeOptions.Preset.original)
                     Text("Smaller").tag(PDFOptimizeOptions.Preset.smaller)
@@ -224,23 +230,21 @@ struct PrintPreviewSheet: View {
                 }
 
                 if qualityPreset == .custom {
-                    Section {
-                        HStack {
-                            Text("Image Quality")
-                            Slider(value: $imageQuality, in: 0.4...1.0, step: 0.05)
-                            Text("\(Int(imageQuality * 100))%")
-                        }
-                        HStack {
-                            Text("Max Image DPI")
-                            Slider(value: $maxDPI, in: 72...600, step: 12)
-                            Text("\(Int(maxDPI))")
-                        }
-                        Toggle("Downsample Images", isOn: $downsample)
-                        Toggle("Grayscale Images", isOn: $grayscale)
-                        Toggle("Strip Metadata", isOn: $stripMetadata)
-                        Toggle("Flatten Annotations", isOn: $flatten)
-                        Toggle("Recompress Streams", isOn: $recompress)
+                    HStack {
+                        Text("Image Quality")
+                        Slider(value: $imageQuality, in: 0.4...1.0, step: 0.05)
+                        Text("\(Int(imageQuality * 100))%")
                     }
+                    HStack {
+                        Text("Max Image DPI")
+                        Slider(value: $maxDPI, in: 72...600, step: 12)
+                        Text("\(Int(maxDPI))")
+                    }
+                    Toggle("Downsample Images", isOn: $downsample)
+                    Toggle("Grayscale Images", isOn: $grayscale)
+                    Toggle("Strip Metadata", isOn: $stripMetadata)
+                    Toggle("Flatten Annotations", isOn: $flatten)
+                    Toggle("Recompress Streams", isOn: $recompress)
                 }
             }
         }
@@ -292,81 +296,76 @@ struct PrintPreviewSheet: View {
     // MARK: - Preview Document Builder
 
     private func rebuildPreviewDocument() {
-        guard let base = pdfManager.pdfDocument else { previewDoc = nil; return }
+        guard let subset = buildSubsetDocument() else { previewDoc = nil; return }
+        // Compose with layout so the user sees the true print layout
+        let composed = PreviewComposer.compose(subset: subset,
+                                               paperSize: paperSize,
+                                               pagesPerSheet: pagesPerSheet,
+                                               border: borderStyle)
+        previewDoc = composed ?? subset
+        displayPage = min(max(1, displayPage), previewDoc?.pageCount ?? 1)
+    }
 
+    private func buildSubsetDocument() -> PDFDocument? {
+        guard let base = pdfManager.pdfDocument else { return nil }
         switch choice {
         case .all:
-            previewDoc = base
-            displayPage = min(max(1, displayPage), base.pageCount)
-
+            return base
         case .current:
-            let idx = clamp(pdfManager.editorCurrentPage, 1, max(1, base.pageCount)) - 1
+            let idx = max(0, min(pdfManager.editorCurrentPage-1, base.pageCount-1))
             let one = PDFDocument()
             if let p = base.page(at: idx) { one.insert(p, at: 0) }
-            previewDoc = one
-            displayPage = 1
-
+            return one
         case .custom:
-            guard !customPages.isEmpty else { previewDoc = nil; displayPage = 1; return }
+            guard !customPages.isEmpty else { return nil }
             let sub = PDFDocument()
-            var insert = 0
-            for p in customPages {
-                if let page = base.page(at: p - 1) { sub.insert(page, at: insert); insert += 1 }
+            var i = 0
+            for p in customPages.sorted() {
+                if let pg = base.page(at: p-1) { sub.insert(pg, at: i); i += 1 }
             }
-            previewDoc = sub
-            displayPage = min(max(1, displayPage), sub.pageCount)
+            return sub
         }
     }
 
     // MARK: - Actions
 
     private func shareSelection() {
-        // Build the subset data exactly like printing:
-        let baseData: Data?
-        switch choice {
-        case .all:
-            baseData = pdfManager.pdfDocument?.dataRepresentation()
-        case .current:
-            baseData = pdfManager.subsetPDFData(for: .current(pdfManager.editorCurrentPage))
-        case .custom:
-            if customPages.isEmpty { baseData = nil } else {
-                let sub = PDFDocument()
-                var insert = 0
-                for p in customPages.sorted() {
-                    if let page = pdfManager.pdfDocument?.page(at: p - 1) {
-                        sub.insert(page, at: insert); insert += 1
-                    }
-                }
-                baseData = sub.dataRepresentation()
-            }
-        }
-        guard var data = baseData else { return }
+        guard let base = buildSelectionData() else { return }
 
-        let proceed: (Data) -> Void = { readyData in
-            // Write to a temp file so share extensions can pick it up.
-            let url = FileManager.default.temporaryDirectory
-                .appendingPathComponent("PdfEditAndPresent_share_\(UUID().uuidString).pdf")
-            do {
-                try readyData.write(to: url)
-                self.shareItems = [url]
-                self.showShareSheet = true
-            } catch {
-                // Silently fail; optional alert if you want
-            }
+        let proceed: (Data) -> Void = { ready in
+            // Prefer item source (more reliable than raw URL)
+            let src = PDFActivityItemSource(data: ready, filename: self.jobName.replacingOccurrences(of: "_optimized", with: ""))
+            self.shareItems = [src]
+            self.showShareSheet = true
         }
 
         if qualityPreset == .original {
-            proceed(data)
+            proceed(base)
         } else {
             let opts = currentOptimizeOptions()
-            pdfManager.optimizePDFData(data, options: opts) { result in
+            pdfManager.optimizePDFData(base, options: opts) { result in
                 DispatchQueue.main.async {
                     switch result {
                     case .success(let optimized): proceed(optimized)
-                    case .failure: proceed(data)
+                    case .failure: proceed(base)
                     }
                 }
             }
+        }
+    }
+
+    private func buildSelectionData() -> Data? {
+        switch choice {
+        case .all:     return pdfManager.pdfDocument?.dataRepresentation()
+        case .current: return pdfManager.subsetPDFData(for: .current(pdfManager.editorCurrentPage))
+        case .custom:
+            guard !customPages.isEmpty else { return nil }
+            let sub = PDFDocument()
+            var i = 0
+            for p in customPages.sorted() {
+                if let pg = pdfManager.pdfDocument?.page(at: p-1) { sub.insert(pg, at: i); i += 1 }
+            }
+            return sub.dataRepresentation()
         }
     }
 

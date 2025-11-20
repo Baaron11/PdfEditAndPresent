@@ -15,6 +15,11 @@ struct PrintPreviewSheet: View {
     @State private var customRange: ClosedRange<Int>? = nil
     @State private var customWarning: String? = nil
 
+    // Subset preview
+    @State private var previewDoc: PDFDocument? = nil     // subset doc for the preview
+    @State private var displayPage: Int = 1               // page within subset
+    private var displayPageCount: Int { previewDoc?.pageCount ?? 0 }
+
     // Options
     @State private var copies: Int = 1
     @State private var color: Bool = true
@@ -104,9 +109,12 @@ struct PrintPreviewSheet: View {
             }
             .onAppear {
                 currentPage = min(max(1, currentPage), max(1, pageCount))
-                // Defaults for quality custom values
                 applyQualityPreset(qualityPreset)
+                rebuildPreviewDocument()
             }
+            .onChange(of: choice) { _, _ in rebuildPreviewDocument() }
+            .onChange(of: customRange) { _, _ in rebuildPreviewDocument() }
+            .onChange(of: currentPage) { _, _ in if choice == .current { rebuildPreviewDocument() } }
         }
     }
 
@@ -200,52 +208,76 @@ struct PrintPreviewSheet: View {
 
     private var preview: some View {
         ZStack {
-            if let doc = pdfManager.pdfDocument {
-                ContinuousPDFPreview(document: doc, currentPage: $currentPage)
+            if let doc = previewDoc {
+                ContinuousPDFPreview(document: doc, currentPage: $displayPage)
                     .background(Color(.secondarySystemBackground))
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             } else {
-                ContentUnavailableView("No Document", systemImage: "doc", description: Text("Open a PDF to print."))
+                ContentUnavailableView("No Pages Selected", systemImage: "doc", description: Text("Choose pages to print."))
             }
         }
     }
 
     private var pager: some View {
         HStack(spacing: 12) {
-            Button {
-                currentPage = max(1, currentPage - 1)
-                syncChoiceForCurrentPage()
-            } label: { Image(systemName: "chevron.left") }
-            .disabled(currentPage <= 1)
+            Button { displayPage = max(1, displayPage - 1) } label: { Image(systemName: "chevron.left") }
+                .disabled(displayPage <= 1)
 
             HStack(spacing: 8) {
                 Text("Page")
-                TextField("", value: $currentPage, format: .number)
+                TextField("", value: $displayPage, format: .number)
                     .frame(width: 56, height: 30)
                     .textFieldStyle(.roundedBorder)
                     .multilineTextAlignment(.center)
                     .keyboardType(.numberPad)
-                    .onChange(of: currentPage) { _, newValue in
-                        currentPage = clamp(newValue, 1, max(1, pageCount))
-                        syncChoiceForCurrentPage()
+                    .onChange(of: displayPage) { _, newValue in
+                        displayPage = clamp(newValue, 1, max(1, displayPageCount))
                     }
-                Text("of \(max(1, pageCount))")
+                Text("of \(max(1, displayPageCount))")
             }
             .font(.callout)
             .lineLimit(1)
             .minimumScaleFactor(0.9)
             .fixedSize(horizontal: true, vertical: false)
 
-            Button {
-                currentPage = min(max(1, pageCount), currentPage + 1)
-                syncChoiceForCurrentPage()
-            } label: { Image(systemName: "chevron.right") }
-            .disabled(currentPage >= max(1, pageCount))
+            Button { displayPage = min(max(1, displayPageCount), displayPage + 1) } label: { Image(systemName: "chevron.right") }
+                .disabled(displayPage >= max(1, displayPageCount))
 
             Spacer()
         }
         .padding(.horizontal)
         .padding(.bottom, 6)
+    }
+
+    // MARK: - Preview Document Builder
+
+    private func rebuildPreviewDocument() {
+        guard let base = pdfManager.pdfDocument else { previewDoc = nil; return }
+
+        switch choice {
+        case .all:
+            previewDoc = base
+            displayPage = min(max(1, displayPage), base.pageCount)
+
+        case .current:
+            let idx = clamp(currentPage, 1, max(1, base.pageCount)) - 1
+            let one = PDFDocument()
+            if let p = base.page(at: idx) { one.insert(p, at: 0) }
+            previewDoc = one
+            displayPage = 1
+
+        case .custom:
+            guard let r = customRange else { previewDoc = nil; displayPage = 1; return }
+            let start = max(1, r.lowerBound)
+            let end = min(base.pageCount, r.upperBound)
+            let sub = PDFDocument()
+            var insert = 0
+            for i in (start-1)...(end-1) {
+                if let p = base.page(at: i) { sub.insert(p, at: insert); insert += 1 }
+            }
+            previewDoc = sub
+            displayPage = min(max(1, displayPage), sub.pageCount)
+        }
     }
 
     // MARK: - Actions
@@ -439,6 +471,7 @@ extension PrintPreviewSheet {
             customWarning = "Non-contiguous pages will be printed as \(lo)-\(hi)."
         }
         customRange = lo...hi
+        rebuildPreviewDocument()
     }
 }
 
@@ -454,39 +487,29 @@ struct ContinuousPDFPreview: UIViewRepresentable {
         v.displayDirection = .vertical
         v.backgroundColor = .secondarySystemBackground
         v.document = document
-
-        // Register for page change notifications
-        NotificationCenter.default.addObserver(
-            context.coordinator,
-            selector: #selector(Coord.pdfViewPageChanged(_:)),
-            name: .PDFViewPageChanged,
-            object: v
-        )
-
+        v.delegate = context.coordinator
+        if let p = document.page(at: max(0, min(currentPage-1, document.pageCount-1))) { v.go(to: p) }
         return v
     }
 
     func updateUIView(_ uiView: PDFView, context: Context) {
         if uiView.document !== document { uiView.document = document }
+        uiView.displayMode = .singlePageContinuous
+        uiView.displayDirection = .vertical
         uiView.autoScales = true
-        if let page = document.page(at: max(0, min(currentPage-1, document.pageCount-1))) {
-            uiView.go(to: page)
-        }
+        if let p = document.page(at: max(0, min(currentPage-1, document.pageCount-1))) { uiView.go(to: p) }
     }
 
     func makeCoordinator() -> Coord { Coord(self) }
 
-    final class Coord: NSObject {
+    final class Coord: NSObject, PDFViewDelegate {
         var parent: ContinuousPDFPreview
         init(_ p: ContinuousPDFPreview) { self.parent = p }
-
-        @objc func pdfViewPageChanged(_ notification: Notification) {
-            guard let v = notification.object as? PDFView,
+        func pdfViewPageChanged(_ sender: Notification) {
+            guard let v = sender.object as? PDFView,
                   let page = v.currentPage,
                   let idx = v.document?.index(for: page) else { return }
-            DispatchQueue.main.async {
-                self.parent.currentPage = idx + 1
-            }
+            parent.currentPage = idx + 1
         }
     }
 }

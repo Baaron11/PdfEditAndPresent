@@ -20,6 +20,10 @@ struct PrintPreviewSheet: View {
     @State private var color: Bool = true
     @State private var duplex: PDFManager.DuplexMode = .none   // label will be "No" in UI
     @State private var orientation: PDFManager.PageOrientation = .auto
+    @State private var paperSize: PDFManager.PaperSize = .systemDefault
+    @State private var pagesPerSheet: Int = 1
+    @State private var borderStyle: PDFManager.BorderStyle = .none
+    @State private var includeAnnotations: Bool = true
 
     // Quality (reusing Change File Size presets)
     @State private var qualityPreset: PDFOptimizeOptions.Preset = .original
@@ -142,6 +146,24 @@ struct PrintPreviewSheet: View {
                     Text("Portrait").tag(PDFManager.PageOrientation.portrait)
                     Text("Landscape").tag(PDFManager.PageOrientation.landscape)
                 }
+                Picker("Paper Size", selection: $paperSize) {
+                    Text("System Default").tag(PDFManager.PaperSize.systemDefault)
+                    Text("Letter").tag(PDFManager.PaperSize.letter)
+                    Text("Legal").tag(PDFManager.PaperSize.legal)
+                    Text("A4").tag(PDFManager.PaperSize.a4)
+                }
+                Picker("Pages per Sheet", selection: $pagesPerSheet) {
+                    Text("1").tag(1); Text("2").tag(2); Text("4").tag(4); Text("6").tag(6); Text("8").tag(8)
+                }
+                Picker("Border", selection: $borderStyle) {
+                    Text("None").tag(PDFManager.BorderStyle.none)
+                    Text("Single HairLine").tag(PDFManager.BorderStyle.singleHair)
+                    Text("Single Thin Line").tag(PDFManager.BorderStyle.singleThin)
+                    Text("Double HairLine").tag(PDFManager.BorderStyle.doubleHair)
+                    Text("Double Thin Line").tag(PDFManager.BorderStyle.doubleThin)
+                }
+                Toggle("Annotations", isOn: $includeAnnotations)
+                    .tint(.accentColor)
                 // QUALITY
                 Picker("Quality", selection: $qualityPreset) {
                     Text("Original").tag(PDFOptimizeOptions.Preset.original)
@@ -179,7 +201,7 @@ struct PrintPreviewSheet: View {
     private var preview: some View {
         ZStack {
             if let doc = pdfManager.pdfDocument {
-                SinglePagePDFPreview(document: doc, pageIndex: currentPage - 1)
+                ContinuousPDFPreview(document: doc, currentPage: $currentPage)
                     .background(Color(.secondarySystemBackground))
                     .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             } else {
@@ -293,7 +315,11 @@ struct PrintPreviewSheet: View {
                                               copies: copies,
                                               color: color,
                                               duplex: duplex,
-                                              orientation: orientation)
+                                              orientation: orientation,
+                                              pagesPerSheet: pagesPerSheet,
+                                              paperSize: paperSize,
+                                              borderStyle: borderStyle,
+                                              includeAnnotations: includeAnnotations)
             #else
             pdfManager.presentPrintController(macData: readyData, jobName: jobName)
             #endif
@@ -413,6 +439,55 @@ extension PrintPreviewSheet {
             customWarning = "Non-contiguous pages will be printed as \(lo)-\(hi)."
         }
         customRange = lo...hi
+    }
+}
+
+// MARK: - Continuous PDFKit wrapper
+struct ContinuousPDFPreview: UIViewRepresentable {
+    let document: PDFDocument
+    @Binding var currentPage: Int
+
+    func makeUIView(context: Context) -> PDFView {
+        let v = PDFView()
+        v.autoScales = true
+        v.displayMode = .singlePageContinuous
+        v.displayDirection = .vertical
+        v.backgroundColor = .secondarySystemBackground
+        v.document = document
+
+        // Register for page change notifications
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(Coord.pdfViewPageChanged(_:)),
+            name: .PDFViewPageChanged,
+            object: v
+        )
+
+        return v
+    }
+
+    func updateUIView(_ uiView: PDFView, context: Context) {
+        if uiView.document !== document { uiView.document = document }
+        uiView.autoScales = true
+        if let page = document.page(at: max(0, min(currentPage-1, document.pageCount-1))) {
+            uiView.go(to: page)
+        }
+    }
+
+    func makeCoordinator() -> Coord { Coord(self) }
+
+    final class Coord: NSObject {
+        var parent: ContinuousPDFPreview
+        init(_ p: ContinuousPDFPreview) { self.parent = p }
+
+        @objc func pdfViewPageChanged(_ notification: Notification) {
+            guard let v = notification.object as? PDFView,
+                  let page = v.currentPage,
+                  let idx = v.document?.index(for: page) else { return }
+            DispatchQueue.main.async {
+                self.parent.currentPage = idx + 1
+            }
+        }
     }
 }
 

@@ -40,9 +40,23 @@ class PDFManager: ObservableObject {
     enum DuplexMode: String, CaseIterable { case none, shortEdge, longEdge }
     enum PageOrientation: String, CaseIterable { case auto, portrait, landscape }
 
+    enum PaperSize: String, CaseIterable {
+        case systemDefault, letter, legal, a4
+        var pageRect: CGRect {
+            switch self {
+            case .systemDefault: return .zero   // let printer decide
+            case .letter: return CGRect(x: 0, y: 0, width: 612, height: 792)   // 8.5x11 @ 72dpi
+            case .legal:  return CGRect(x: 0, y: 0, width: 612, height: 1008)
+            case .a4:     return CGRect(x: 0, y: 0, width: 595, height: 842)
+            }
+        }
+    }
+
+    enum BorderStyle: String, CaseIterable { case none, singleHair, singleThin, doubleHair, doubleThin }
+
     // MARK: - Selected Printer
-    @Published var selectedPrinterName: String = "Default Printer"
-    var selectedPrinter: UIPrinter?
+    @Published var selectedPrinterName: String = "Select Printer"
+    @Published var selectedPrinter: UIPrinter?
     
     // ✅ MARGIN SETTINGS: One entry per page
     @Published var marginSettings: [MarginSettings] = []
@@ -535,7 +549,12 @@ class PDFManager: ObservableObject {
                 .compactMap({ $0 as? UIWindowScene })
                 .first(where: { $0.activationState == .foregroundActive }),
               let root = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController else {
-            picker.present(animated: true) { (_, _, _) in }
+            picker.present(animated: true) { (controller, userDidSelect, error) in
+                if userDidSelect {
+                    self.selectedPrinter = controller.selectedPrinter
+                    self.selectedPrinterName = controller.selectedPrinter?.displayName ?? "Selected Printer"
+                }
+            }
             return
         }
 
@@ -553,34 +572,32 @@ class PDFManager: ObservableObject {
                                 copies: Int,
                                 color: Bool,
                                 duplex: DuplexMode,
-                                orientation: PageOrientation) {
-        let printInfo = UIPrintInfo(dictionary: nil)
-        printInfo.jobName = jobName
-        printInfo.outputType = color ? .photo : .grayscale
-        switch duplex {
-        case .none:      printInfo.duplex = .none
-        case .shortEdge: printInfo.duplex = .shortEdge
-        case .longEdge:  printInfo.duplex = .longEdge
-        }
-        switch orientation {
-        case .auto:      printInfo.orientation = .portrait
-        case .portrait:  printInfo.orientation = .portrait
-        case .landscape: printInfo.orientation = .landscape
-        }
-
+                                orientation: PageOrientation,
+                                pagesPerSheet: Int = 1,
+                                paperSize: PaperSize = .systemDefault,
+                                borderStyle: BorderStyle = .none,
+                                includeAnnotations: Bool = true) {
         let controller = UIPrintInteractionController.shared
-        controller.printInfo = printInfo
-        controller.printingItem = pdfData
-        controller.showsNumberOfCopies = true
-        controller.showsPaperSelectionForLoadedPapers = true
+        controller.showsNumberOfCopies = false
+        controller.showsPaperSelectionForLoadedPapers = false
+        controller.printInfo = configuredPrintInfo(jobName: jobName, color: color, duplex: duplex, orientation: orientation)
 
-        // If a printer is selected, print directly to it
+        // Use a custom renderer so we can support pages-per-sheet, paper size, borders, and annotations
+        controller.printPageRenderer = CustomPDFRenderer(
+            pdfData: pdfData,
+            pagesPerSheet: pagesPerSheet,
+            paperSize: paperSize,
+            borderStyle: borderStyle,
+            includeAnnotations: includeAnnotations
+        )
+
         if let printer = selectedPrinter {
+            // This bypasses the full Apple preview and prints directly (shows minimal progress UI)
             controller.print(to: printer, completionHandler: nil)
             return
         }
 
-        // Present on the active scene
+        // Fall back to presenting the system sheet if no printer selected yet
         if let scene = UIApplication.shared.connectedScenes
             .compactMap({ $0 as? UIWindowScene })
             .first(where: { $0.activationState == .foregroundActive }),
@@ -589,6 +606,19 @@ class PDFManager: ObservableObject {
         } else {
             controller.present(animated: true, completionHandler: nil)
         }
+    }
+
+    private func configuredPrintInfo(jobName: String, color: Bool, duplex: DuplexMode, orientation: PageOrientation) -> UIPrintInfo {
+        let info = UIPrintInfo(dictionary: nil)
+        info.jobName = jobName
+        info.outputType = color ? .photo : .grayscale
+        switch duplex {
+        case .none: info.duplex = .none
+        case .shortEdge: info.duplex = .shortEdge
+        case .longEdge: info.duplex = .longEdge
+        }
+        info.orientation = (orientation == .landscape) ? .landscape : .portrait
+        return info
     }
 
     /// Forwarder for Save As used by print preview

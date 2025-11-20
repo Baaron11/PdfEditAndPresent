@@ -259,7 +259,7 @@ struct PDFEditorScreenRefactored: View {
         })
         // Change Page Size sheet
         .sheet(isPresented: $showChangePageSizeSheet) {
-            ChangePageSizeSheet()
+            ChangePageSizeSheet(pdfManager: pdfManager)
         }
         // Change File Size sheet (PDF optimization)
         .sheet(isPresented: $showChangeFileSizeSheet) {
@@ -414,7 +414,11 @@ struct PDFEditorScreenRefactored: View {
                         isTitleFieldFocused = true
 
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                            if let textField = UIApplication.shared.windows.first?.rootViewController?.view.firstTextField {
+                            if let windowScene = UIApplication.shared.connectedScenes
+                                .compactMap({ $0 as? UIWindowScene })
+                                .first(where: { $0.activationState == .foregroundActive }),
+                               let keyWindow = windowScene.windows.first(where: { $0.isKeyWindow }),
+                               let textField = keyWindow.rootViewController?.view.firstTextField {
                                 textField.selectAll(nil)
                             }
                         }

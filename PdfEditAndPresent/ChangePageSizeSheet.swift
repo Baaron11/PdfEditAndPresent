@@ -42,7 +42,7 @@ struct ChangePageSizeSheet: View {
                         Text(p.rawValue).tag(p)
                     }
                 }
-                .onChange(of: preset) { applyPreset($0) }
+                .onChange(of: preset) { _, newValue in applyPreset(newValue) }
 
                 // Units
                 Picker("Units", selection: $unit) {
@@ -51,7 +51,7 @@ struct ChangePageSizeSheet: View {
                     Text("pt").tag(Unit.points)
                 }
                 .pickerStyle(.segmented)
-                .onChange(of: unit) { _ in convertUnitsKeepingPoints() }
+                .onChange(of: unit) { _, _ in convertUnitsKeepingPoints() }
 
                 // Custom wheels (only when custom)
                 if preset == .custom {
@@ -65,7 +65,7 @@ struct ChangePageSizeSheet: View {
                 Toggle(isOn: $isPortrait) {
                     Text(isPortrait ? "Portrait" : "Landscape")
                 }
-                .onChange(of: isPortrait) { _ in swapIfNeeded() }
+                .onChange(of: isPortrait) { _, _ in swapIfNeeded() }
 
                 // Preview
                 PageSizePreview(width: widthVal, height: heightVal, unit: unit)

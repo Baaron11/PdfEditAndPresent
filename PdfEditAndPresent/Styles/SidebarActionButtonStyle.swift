@@ -35,7 +35,7 @@ struct SidebarActionButton: View {
             Image(systemName: systemImage)
                 .font(.system(size: iconPointSize, weight: .semibold))
             Text(title)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 10, weight: .semibold))
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .allowsTightening(true)

@@ -1451,7 +1451,7 @@ struct ContinuousScrollThumbnailSidebar: View {
                     draggedPageIndex = nil
                 }
             } label: {
-                SidebarActionButton(systemImage: isEditMode ? "checkmark.circle.fill" : "trash", title: isEditMode ? "Done" : "Remove Pages", iconPointSize: 14)
+                SidebarActionButton(systemImage: isEditMode ? "checkmark.circle.fill" : "trash", title: isEditMode ? "Done" : "Delete", iconPointSize: 14)
             }
             .buttonStyle(SidebarActionButtonStyle())
         }

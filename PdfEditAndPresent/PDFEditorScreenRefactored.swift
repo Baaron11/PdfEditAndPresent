@@ -1318,7 +1318,7 @@ struct ContinuousScrollThumbnailSidebar: View {
         .alert("After Which Page?", isPresented: $showPageNumberInput) {
             TextField("Page number", text: $insertPosition)
                 .keyboardType(.numberPad)
-            
+
             Button("Insert") {
                 if !insertPosition.isEmpty {
                     insertPDF()
@@ -1328,8 +1328,20 @@ struct ContinuousScrollThumbnailSidebar: View {
         } message: {
             Text("Enter the page number after which to insert (1-\(pdfManager.pageCount))")
         }
+        .fileImporter(
+            isPresented: $pdfManager.showMergeImporter,
+            allowedContentTypes: [.pdf],
+            allowsMultipleSelection: true
+        ) { result in
+            switch result {
+            case .success(let urls):
+                pdfManager.mergeSelectedPDFs(urls: urls)
+            case .failure:
+                break
+            }
+        }
     }
-    
+
     private var dropIndicatorLine: some View {
         RoundedRectangle(cornerRadius: 1.5)
             .fill(Color.blue)
@@ -1426,7 +1438,7 @@ struct ContinuousScrollThumbnailSidebar: View {
             .buttonStyle(SidebarActionButtonStyle())
 
             Button {
-                showFilePicker = true
+                pdfManager.presentMergePDF()
             } label: {
                 SidebarActionButton(systemImage: "doc.badge.plus", title: "PDF", iconPointSize: 14)
             }

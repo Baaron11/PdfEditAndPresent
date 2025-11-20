@@ -10,9 +10,8 @@ import SwiftUI
 struct SidebarActionButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 14, weight: .semibold))
-            .frame(maxWidth: .infinity, minHeight: 40)
-            .padding(.horizontal, 8)
+            .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
+            .padding(.horizontal, 10)
             .background(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(Color(.secondarySystemBackground))
@@ -36,10 +35,13 @@ struct SidebarActionButton: View {
             Image(systemName: systemImage)
                 .font(.system(size: iconPointSize, weight: .semibold))
             Text(title)
+                .font(.system(size: 14, weight: .semibold))
                 .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .allowsTightening(true)
+                .layoutPriority(1)
             Spacer(minLength: 0)
         }
         .padding(.vertical, 6)
-        .padding(.leading, 10)
     }
 }

@@ -140,18 +140,6 @@ struct PDFThumbnailSidebar: View {
         } message: {
             Text("Enter the page number after which to insert (1-\(pdfManager.pageCount))")
         }
-        .fileImporter(
-            isPresented: $pdfManager.showMergeImporter,
-            allowedContentTypes: [.pdf],
-            allowsMultipleSelection: true
-        ) { result in
-            switch result {
-            case .success(let urls):
-                pdfManager.mergeSelectedPDFs(urls: urls)
-            case .failure:
-                break
-            }
-        }
     }
     
     private var dropIndicatorLine: some View {
@@ -250,7 +238,7 @@ struct PDFThumbnailSidebar: View {
             .buttonStyle(SidebarActionButtonStyle())
 
             Button {
-                pdfManager.presentMergePDF()
+                pdfManager.triggerMergePDF()
             } label: {
                 SidebarActionButton(systemImage: "doc.badge.plus", title: "PDF", iconPointSize: 14)
             }

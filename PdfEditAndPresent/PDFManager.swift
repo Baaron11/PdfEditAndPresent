@@ -21,6 +21,17 @@ class PDFManager: ObservableObject {
 
     // MARK: - Merge PDF State
     @Published var showMergeImporter = false
+    @Published var showMergePositionDialog = false
+    @Published var selectedMergeURLs: [URL] = []
+    @Published var mergeInsertPosition: String = ""
+    @Published var showMergePageNumberInput = false
+
+    enum MergeInsertMethod {
+        case atFront
+        case atEnd
+        case afterPage
+    }
+    @Published var mergeInsertMethod: MergeInsertMethod = .atEnd
     
     // ✅ MARGIN SETTINGS: One entry per page
     @Published var marginSettings: [MarginSettings] = []
@@ -413,12 +424,56 @@ class PDFManager: ObservableObject {
 
     // MARK: - Merge PDF Methods
 
-    /// Entry point invoked by the sidebar button
-    func presentMergePDF() {
+    /// Unified entry point. Call this from both: File menu and sidebar button.
+    func triggerMergePDF() {
         DispatchQueue.main.async { self.showMergeImporter = true }
     }
 
-    /// Called after picking PDFs - merges all selected PDFs at the end
+    /// Called after picker returns URLs; shows position dialog for merge
+    func handlePickedPDFsForMerge(urls: [URL]) {
+        selectedMergeURLs = urls
+        showMergePositionDialog = true
+    }
+
+    /// Performs the actual merge at the selected position
+    func performMergePDF() {
+        guard !selectedMergeURLs.isEmpty else { return }
+
+        let targetPosition: Int
+        switch mergeInsertMethod {
+        case .atFront:
+            targetPosition = 0
+        case .atEnd:
+            targetPosition = pageCount
+        case .afterPage:
+            if let pageNum = Int(mergeInsertPosition), pageNum > 0 && pageNum <= pageCount {
+                targetPosition = pageNum
+            } else {
+                return
+            }
+        }
+
+        for url in selectedMergeURLs {
+            // Start security-scoped access
+            let accessing = url.startAccessingSecurityScopedResource()
+            defer {
+                if accessing {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
+
+            insertPDF(from: url, at: targetPosition)
+        }
+        print("✅ Merged \(selectedMergeURLs.count) PDF(s) into document at position \(targetPosition)")
+
+        // Reset state
+        selectedMergeURLs = []
+        mergeInsertPosition = ""
+        mergeInsertMethod = .atEnd
+        showMergePageNumberInput = false
+    }
+
+    /// Legacy method for backwards compatibility - merges all at end
     func mergeSelectedPDFs(urls: [URL]) {
         for url in urls {
             // Start security-scoped access

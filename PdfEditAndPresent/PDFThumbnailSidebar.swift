@@ -233,14 +233,14 @@ struct PDFThumbnailSidebar: View {
             Button {
                 pdfManager.addBlankPage()
             } label: {
-                SidebarActionButton(systemImage: "plus", title: "Add Page")
+                SidebarActionButton(systemImage: "plus", title: "Blank", iconPointSize: 14)
             }
             .buttonStyle(SidebarActionButtonStyle())
 
             Button {
                 showFilePicker = true
             } label: {
-                SidebarActionButton(systemImage: "doc.badge.plus", title: "Add PDF")
+                SidebarActionButton(systemImage: "doc.badge.plus", title: "PDF", iconPointSize: 14)
             }
             .buttonStyle(SidebarActionButtonStyle())
 
@@ -251,7 +251,7 @@ struct PDFThumbnailSidebar: View {
                     draggedPageIndex = nil
                 }
             } label: {
-                SidebarActionButton(systemImage: isEditMode ? "checkmark.circle.fill" : "nosign", title: isEditMode ? "Done" : "Remove...")
+                SidebarActionButton(systemImage: isEditMode ? "checkmark.circle.fill" : "trash", title: isEditMode ? "Done" : "Remove Pages", iconPointSize: 14)
             }
             .buttonStyle(SidebarActionButtonStyle())
         }

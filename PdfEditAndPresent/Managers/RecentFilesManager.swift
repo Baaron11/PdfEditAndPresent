@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import Combine
 
 struct RecentFile: Codable, Hashable {
     var urlBookmarkData: Data        // security-scoped if outside sandbox
@@ -24,7 +25,7 @@ final class RecentFilesManager: ObservableObject {
     // Add or bump existing:
     func addOrBump(url: URL, displayName: String? = nil) {
         let name = displayName ?? (try? url.resourceValues(forKeys: [.localizedNameKey]).localizedName) ?? url.lastPathComponent
-        let bookmark = (try? url.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)) ?? Data()
+        let bookmark = (try? url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)) ?? Data()
         let rf = RecentFile(urlBookmarkData: bookmark, displayName: name, lastOpened: Date())
         if let idx = items.firstIndex(where: { $0.displayName == name }) {
             items[idx] = rf
@@ -64,7 +65,7 @@ final class RecentFilesManager: ObservableObject {
     // Resolve a recent file to its URL
     func resolveURL(for item: RecentFile) -> URL? {
         var isStale = false
-        guard let url = try? URL(resolvingBookmarkData: item.urlBookmarkData, options: [.withSecurityScope], relativeTo: nil, bookmarkDataIsStale: &isStale) else {
+        guard let url = try? URL(resolvingBookmarkData: item.urlBookmarkData, options: [], relativeTo: nil, bookmarkDataIsStale: &isStale) else {
             return nil
         }
         return url
@@ -81,7 +82,7 @@ final class RecentFilesManager: ObservableObject {
     private func indexOf(url: URL) -> Int? {
         for (i, item) in items.enumerated() {
             var isStale = false
-            if let u = try? URL(resolvingBookmarkData: item.urlBookmarkData, options: [.withSecurityScope], relativeTo: nil, bookmarkDataIsStale: &isStale) {
+            if let u = try? URL(resolvingBookmarkData: item.urlBookmarkData, options: [], relativeTo: nil, bookmarkDataIsStale: &isStale) {
                 if u.standardizedFileURL == url.standardizedFileURL { return i }
             }
         }

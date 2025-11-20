@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct ChangePageSizeSheet: View {
+    @ObservedObject var pdfManager: PDFManager
     @Environment(\.dismiss) private var dismiss
 
     @State private var unit: Unit = .inches
@@ -79,7 +80,7 @@ struct ChangePageSizeSheet: View {
                     Button("Apply") {
                         // Convert current UI values to points and APPLY them.
                         let pts = convertToPoints(width: widthVal, height: heightVal, unit: unit)
-                        DocumentManager.shared.setPageSize(widthPoints: pts.w, heightPoints: pts.h)
+                        pdfManager.setPageSize(widthPoints: Double(pts.w), heightPoints: Double(pts.h))
                         dismiss()
                     }
                 }

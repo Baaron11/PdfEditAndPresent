@@ -39,6 +39,10 @@ class PDFManager: ObservableObject {
     // Print settings enums
     enum DuplexMode: String, CaseIterable { case none, shortEdge, longEdge }
     enum PageOrientation: String, CaseIterable { case auto, portrait, landscape }
+
+    // MARK: - Selected Printer
+    @Published var selectedPrinterName: String = "Default Printer"
+    var selectedPrinter: UIPrinter?
     
     // ✅ MARGIN SETTINGS: One entry per page
     @Published var marginSettings: [MarginSettings] = []
@@ -524,6 +528,25 @@ class PDFManager: ObservableObject {
         return newDoc.dataRepresentation()
     }
 
+    /// Present the system printer picker and store selection
+    func presentPrinterPicker() {
+        let picker = UIPrinterPickerController(initiallySelectedPrinter: selectedPrinter)
+        guard let scene = UIApplication.shared.connectedScenes
+                .compactMap({ $0 as? UIWindowScene })
+                .first(where: { $0.activationState == .foregroundActive }),
+              let root = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController else {
+            picker.present(animated: true) { (_, _, _) in }
+            return
+        }
+
+        picker.present(from: root.view.bounds, in: root.view, animated: true) { [weak self] (controller, userDidSelect, error) in
+            if userDidSelect {
+                self?.selectedPrinter = controller.selectedPrinter
+                self?.selectedPrinterName = controller.selectedPrinter?.displayName ?? "Selected Printer"
+            }
+        }
+    }
+
     /// Present the system print interaction controller with data + options
     func presentPrintController(pdfData: Data,
                                 jobName: String,
@@ -551,6 +574,12 @@ class PDFManager: ObservableObject {
         controller.showsNumberOfCopies = true
         controller.showsPaperSelectionForLoadedPapers = true
 
+        // If a printer is selected, print directly to it
+        if let printer = selectedPrinter {
+            controller.print(to: printer, completionHandler: nil)
+            return
+        }
+
         // Present on the active scene
         if let scene = UIApplication.shared.connectedScenes
             .compactMap({ $0 as? UIWindowScene })
@@ -560,6 +589,13 @@ class PDFManager: ObservableObject {
         } else {
             controller.present(animated: true, completionHandler: nil)
         }
+    }
+
+    /// Forwarder for Save As used by print preview
+    func saveDocumentAs(completion: ((Bool, URL?) -> Void)? = nil) {
+        // Call existing Save As implementation
+        // This is a placeholder - implement based on your existing save logic
+        completion?(false, nil)
     }
 
     /// Move a page from one position to another

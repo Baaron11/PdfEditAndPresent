@@ -22,7 +22,7 @@ struct ChangeFileSizeSheet: View {
                     Text("Smallest").tag(PDFOptimizeOptions.Preset.smallest)
                     Text("Custom").tag(PDFOptimizeOptions.Preset.custom)
                 }
-                .onChange(of: preset) { applyPreset($0) }
+                .onChange(of: preset) { _, newValue in applyPreset(newValue) }
 
                 if preset == .custom {
                     Section("Images") {

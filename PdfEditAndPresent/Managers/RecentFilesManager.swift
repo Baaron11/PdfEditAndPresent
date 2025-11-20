@@ -44,7 +44,7 @@ final class RecentFilesManager: ObservableObject {
     // When Save As or rename occurs:
     func updateAfterSaveAsOrRename(from oldURL: URL?, to newURL: URL) {
         let name = (try? newURL.resourceValues(forKeys: [.localizedNameKey]).localizedName) ?? newURL.lastPathComponent
-        let bookmark = (try? newURL.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil)) ?? Data()
+        let bookmark = (try? newURL.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)) ?? Data()
 
         if let oldURL, let oldIdx = indexOf(url: oldURL) {
             items.remove(at: oldIdx)

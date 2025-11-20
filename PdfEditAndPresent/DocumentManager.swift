@@ -8,6 +8,7 @@
 import SwiftUI
 import PDFKit
 import UniformTypeIdentifiers
+import Combine
 
 /// Singleton manager for document-level operations
 final class DocumentManager: ObservableObject {
@@ -63,7 +64,7 @@ final class DocumentManager: ObservableObject {
     /// Saves the document, or prompts for Save As if it's a new/untitled document
     /// - Parameter completion: Called with true if save succeeded, false if cancelled or failed
     func saveOrPromptIfUntitled(completion: ((Bool) -> Void)? = nil) {
-        if let url = fileURL {
+        if fileURL != nil {
             // Existing file - save in place
             let success = saveDocument()
             completion?(success)
@@ -211,7 +212,6 @@ final class DocumentManager: ObservableObject {
             guard let page = document.page(at: pageIndex) else { continue }
 
             let pageRect = page.bounds(for: .mediaBox)
-            var pageMediaBox = pageRect
 
             // Begin new page
             context.beginPDFPage(nil)

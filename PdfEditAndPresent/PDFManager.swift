@@ -1,6 +1,7 @@
 import SwiftUI
 import PDFKit
 import Combine
+import UniformTypeIdentifiers
 
 // MARK: - Display Mode Enum
 enum PDFDisplayMode: String, Codable {
@@ -17,6 +18,9 @@ class PDFManager: ObservableObject {
     @Published var thumbnails: [UIImage?] = []
     @Published var zoomLevel: CGFloat = 1.0
     @Published var displayMode: PDFDisplayMode = .continuousScroll
+
+    // MARK: - Merge PDF State
+    @Published var showMergeImporter = false
     
     // ✅ MARGIN SETTINGS: One entry per page
     @Published var marginSettings: [MarginSettings] = []
@@ -403,10 +407,33 @@ class PDFManager: ObservableObject {
         let newMarginSettings = Array(repeating: MarginSettings(), count: sourceDocument.pageCount)
         marginSettings.insert(contentsOf: newMarginSettings, at: validPosition)
         print("📐 Added margin settings for \(sourceDocument.pageCount) new pages")
-        
+
         regenerateThumbnails()
     }
-    
+
+    // MARK: - Merge PDF Methods
+
+    /// Entry point invoked by the sidebar button
+    func presentMergePDF() {
+        DispatchQueue.main.async { self.showMergeImporter = true }
+    }
+
+    /// Called after picking PDFs - merges all selected PDFs at the end
+    func mergeSelectedPDFs(urls: [URL]) {
+        for url in urls {
+            // Start security-scoped access
+            let accessing = url.startAccessingSecurityScopedResource()
+            defer {
+                if accessing {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
+
+            insertPDF(from: url, at: pageCount)
+        }
+        print("✅ Merged \(urls.count) PDF(s) into document")
+    }
+
     /// Move a page from one position to another
     func movePage(from sourceIndex: Int, to destinationIndex: Int) {
         guard let document = pdfDocument else {

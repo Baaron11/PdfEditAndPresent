@@ -435,6 +435,14 @@ struct PDFEditorScreenRefactored: View {
             }) {
                 Label("Insert Page...", systemImage: "doc.badge.plus")
             }
+
+            Divider()
+
+            Button(action: {
+                pdfManager.presentPrintPreview()
+            }) {
+                Label("Print...", systemImage: "printer")
+            }
         } label: {
             Text("File")
                 .font(.system(size: 14, weight: .semibold))
@@ -452,6 +460,9 @@ struct PDFEditorScreenRefactored: View {
                 pdfManager.triggerMergePDF()
             }
             Button("Cancel", role: .cancel) {}
+        }
+        .sheet(isPresented: $pdfManager.showPrintPreview) {
+            PrintPreviewSheet(pdfManager: pdfManager)
         }
     }
     

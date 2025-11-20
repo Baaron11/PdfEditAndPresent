@@ -125,8 +125,7 @@ struct PDFEditorScreenRefactored: View {
     @State private var showFileMenuSaveAs = false
     @State private var fileMenuSaveAsFilename = ""
 
-    // Change Page Size and Change File Size sheets
-    @State private var showChangePageSizeSheet = false
+    // Change File Size sheet
     @State private var showChangeFileSizeSheet = false
 
     // Save As exporter for new/untitled documents
@@ -245,13 +244,9 @@ struct PDFEditorScreenRefactored: View {
         }, message: {
             Text("Enter a name for the copy (without .pdf extension):")
         })
-        // Change Page Size sheet
-        .sheet(isPresented: $showChangePageSizeSheet) {
-            ChangePageSizeSheet(pdfManager: pdfManager)
-        }
         // Change File Size sheet (PDF optimization)
         .sheet(isPresented: $showChangeFileSizeSheet) {
-            ChangeFileSizeSheet()
+            ChangeFileSizeSheet(pdfManager: pdfManager)
         }
         // Save As exporter for new/untitled documents
         .fileExporter(
@@ -426,12 +421,6 @@ struct PDFEditorScreenRefactored: View {
             }
 
             Divider()
-
-            Button(action: {
-                showChangePageSizeSheet = true
-            }) {
-                Label("Change Page Size...", systemImage: "arrow.up.left.and.arrow.down.right")
-            }
 
             Button(action: {
                 showChangeFileSizeSheet = true

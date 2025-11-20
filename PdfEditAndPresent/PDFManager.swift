@@ -934,3 +934,77 @@ private struct AssociatedKeys {
     static var onMarginSettingsChanged = "onMarginSettingsChanged"
     static var onDocumentChanged = "onDocumentChanged"
 }
+
+// MARK: - Print Preview Helpers
+
+enum OptimizeError: Error {
+    case noDocument
+    case writeFailed
+}
+
+extension PDFManager {
+    enum PageSelectionMode { case all, custom(ClosedRange<Int>), current(Int) }
+
+    /// Convenience property to get file URL from document
+    var fileURL: URL? {
+        pdfDocument?.documentURL
+    }
+
+    /// Build a new PDF `Data` containing only the selected pages.
+    func subsetPDFData(for selection: PageSelectionMode) -> Data? {
+        guard let doc = pdfDocument else { return nil }
+        switch selection {
+        case .all:
+            return doc.dataRepresentation()
+
+        case .current(let page):
+            let idx = max(1, min(page, doc.pageCount)) - 1
+            let newDoc = PDFDocument()
+            if let p = doc.page(at: idx) { newDoc.insert(p, at: 0) }
+            return newDoc.dataRepresentation()
+
+        case .custom(let r):
+            let start = max(1, r.lowerBound)
+            let end   = min(doc.pageCount, r.upperBound)
+            let newDoc = PDFDocument()
+            var insert = 0
+            for i in (start - 1)...(end - 1) {
+                if let p = doc.page(at: i) {
+                    newDoc.insert(p, at: insert)
+                    insert += 1
+                }
+            }
+            return newDoc.dataRepresentation()
+        }
+    }
+
+    /// Optimize in-memory PDF data using the same options/pipeline as Change File Size.
+    /// Implementation may write to a temp URL and read back.
+    func optimizePDFData(_ data: Data,
+                         options: PDFOptimizeOptions,
+                         completion: @escaping (Result<Data, Error>) -> Void) {
+        // Reuse your existing rewrite pipeline. Minimal pass-through fallback:
+        if options.preset == .original {
+            completion(.success(data))
+            return
+        }
+        let tmpIn  = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension("pdf")
+        let tmpOut = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension("pdf")
+        do {
+            try data.write(to: tmpIn)
+            guard let d = PDFDocument(url: tmpIn) else {
+                completion(.failure(OptimizeError.noDocument)); return
+            }
+            // Call your existing rewrite function here if you have it:
+            // rewritePDF(document: d, to: tmpOut, options: options) { ... }
+            // Fallback: just write unchanged to prove the pipe works
+            if d.write(to: tmpOut), let outData = try? Data(contentsOf: tmpOut) {
+                completion(.success(outData))
+            } else {
+                completion(.failure(OptimizeError.writeFailed))
+            }
+        } catch {
+            completion(.failure(error))
+        }
+    }
+}

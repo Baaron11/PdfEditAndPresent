@@ -135,18 +135,6 @@ struct PDFEditorScreenRefactored: View {
 
     // MARK: - File Menu State
     @State private var showInsertPageDialog = false
-    @State private var showMergePDFPicker = false
-    @State private var showMergePositionDialog = false
-    @State private var selectedMergePDFURL: URL?
-    @State private var mergeInsertMethod: MergeInsertMethod = .atEnd
-    @State private var mergeInsertPosition: String = ""
-    @State private var showMergePageNumberInput = false
-
-    enum MergeInsertMethod {
-        case atFront
-        case atEnd
-        case afterPage
-    }
     
     var body: some View {
         VStack(spacing: 0) {
@@ -300,39 +288,41 @@ struct PDFEditorScreenRefactored: View {
         }
         // MARK: - Merge PDF File Importer
         .fileImporter(
-            isPresented: $showMergePDFPicker,
+            isPresented: $pdfManager.showMergeImporter,
             allowedContentTypes: [.pdf],
-            onCompletion: { result in
-                if case .success(let url) = result {
-                    selectedMergePDFURL = url
-                    showMergePositionDialog = true
-                }
+            allowsMultipleSelection: true
+        ) { result in
+            switch result {
+            case .success(let urls):
+                pdfManager.handlePickedPDFsForMerge(urls: urls)
+            case .failure:
+                break
             }
-        )
-        .confirmationDialog("Insert Position", isPresented: $showMergePositionDialog) {
+        }
+        .confirmationDialog("Insert Position", isPresented: $pdfManager.showMergePositionDialog) {
             Button("At Front") {
-                mergeInsertMethod = .atFront
-                performMergePDF()
+                pdfManager.mergeInsertMethod = .atFront
+                pdfManager.performMergePDF()
             }
             Button("At End") {
-                mergeInsertMethod = .atEnd
-                performMergePDF()
+                pdfManager.mergeInsertMethod = .atEnd
+                pdfManager.performMergePDF()
             }
             Button("After Page...") {
-                mergeInsertMethod = .afterPage
-                showMergePageNumberInput = true
+                pdfManager.mergeInsertMethod = .afterPage
+                pdfManager.showMergePageNumberInput = true
             }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Where would you like to insert the PDF?")
         }
-        .alert("After Which Page?", isPresented: $showMergePageNumberInput) {
-            TextField("Page number", text: $mergeInsertPosition)
+        .alert("After Which Page?", isPresented: $pdfManager.showMergePageNumberInput) {
+            TextField("Page number", text: $pdfManager.mergeInsertPosition)
                 .keyboardType(.numberPad)
 
             Button("Insert") {
-                if !mergeInsertPosition.isEmpty {
-                    performMergePDF()
+                if !pdfManager.mergeInsertPosition.isEmpty {
+                    pdfManager.performMergePDF()
                 }
             }
             Button("Cancel", role: .cancel) {}
@@ -341,33 +331,6 @@ struct PDFEditorScreenRefactored: View {
         }
     }
 
-    // MARK: - Merge PDF Helper
-    private func performMergePDF() {
-        guard let pdfURL = selectedMergePDFURL else { return }
-
-        let targetPosition: Int
-        switch mergeInsertMethod {
-        case .atFront:
-            targetPosition = 0
-        case .atEnd:
-            targetPosition = pdfManager.pageCount
-        case .afterPage:
-            if let pageNum = Int(mergeInsertPosition), pageNum > 0 && pageNum <= pdfManager.pageCount {
-                targetPosition = pageNum
-            } else {
-                return
-            }
-        }
-
-        pdfManager.insertPDF(from: pdfURL, at: targetPosition)
-
-        // Reset state
-        selectedMergePDFURL = nil
-        mergeInsertPosition = ""
-        mergeInsertMethod = .atEnd
-        showMergePageNumberInput = false
-    }
-    
     // MARK: - Toolbar View
     private var toolbarView: some View {
         VStack(spacing: ToolbarMetrics.rowSpacing) {
@@ -497,7 +460,7 @@ struct PDFEditorScreenRefactored: View {
                 pdfManager.addBlankPage()
             }
             Button("Merge PDF...") {
-                showMergePDFPicker = true
+                pdfManager.triggerMergePDF()
             }
             Button("Cancel", role: .cancel) {}
         }
@@ -1328,18 +1291,6 @@ struct ContinuousScrollThumbnailSidebar: View {
         } message: {
             Text("Enter the page number after which to insert (1-\(pdfManager.pageCount))")
         }
-        .fileImporter(
-            isPresented: $pdfManager.showMergeImporter,
-            allowedContentTypes: [.pdf],
-            allowsMultipleSelection: true
-        ) { result in
-            switch result {
-            case .success(let urls):
-                pdfManager.mergeSelectedPDFs(urls: urls)
-            case .failure:
-                break
-            }
-        }
     }
 
     private var dropIndicatorLine: some View {
@@ -1438,7 +1389,7 @@ struct ContinuousScrollThumbnailSidebar: View {
             .buttonStyle(SidebarActionButtonStyle())
 
             Button {
-                pdfManager.presentMergePDF()
+                pdfManager.triggerMergePDF()
             } label: {
                 SidebarActionButton(systemImage: "doc.badge.plus", title: "PDF", iconPointSize: 14)
             }

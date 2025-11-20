@@ -145,6 +145,9 @@ struct PDFEditorScreenRefactored: View {
             pdfManager.setPDFDocument(pdfViewModel.currentDocument)
             pdfViewModel.setupPDFManager(pdfManager)
 
+            // Initialize editor current page
+            pdfManager.editorCurrentPage = pdfManager.currentPageIndex + 1
+
             // Configure DocumentManager
             DocumentManager.shared.configure(with: pdfViewModel, pdfManager: pdfManager)
 
@@ -165,8 +168,12 @@ struct PDFEditorScreenRefactored: View {
                 print("✅ PDF editor initialized successfully")
             }
         }
-        .onChange(of: pdfManager.currentPageIndex) { _, _ in
+        .onChange(of: pdfManager.currentPageIndex) { _, newIndex in
+            pdfManager.editorCurrentPage = newIndex + 1
             resetCanvasForPageChange()
+        }
+        .onChange(of: visiblePageIndex) { _, newIndex in
+            pdfManager.editorCurrentPage = newIndex + 1
         }
         .onChange(of: pdfManager.displayMode) { oldValue, newValue in
             print("🔄 Display mode changed from \(oldValue.rawValue) to \(newValue.rawValue)")

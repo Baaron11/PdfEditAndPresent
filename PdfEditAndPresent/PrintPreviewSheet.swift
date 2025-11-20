@@ -12,8 +12,13 @@ struct PrintPreviewSheet: View {
     enum PagesChoice: Hashable { case all, custom, current }
     @State private var choice: PagesChoice = .all
     @State private var customInput: String = ""        // e.g. "1-3,5,8-9"
-    @State private var customRange: ClosedRange<Int>? = nil
+    @State private var customPages: [Int] = []         // exact pages to print (1-based)
     @State private var customWarning: String? = nil
+    @State private var customDebounce: DispatchWorkItem? = nil
+    @FocusState private var customFieldFocused: Bool
+
+    // Printer button anchor
+    @State private var printerButtonHost: UIView?
 
     // Subset preview
     @State private var previewDoc: PDFDocument? = nil     // subset doc for the preview
@@ -71,13 +76,18 @@ struct PrintPreviewSheet: View {
 
                 // Printer dropdown between Cancel and right controls
                 ToolbarItem(placement: .principal) {
-                    Button {
-                        pdfManager.presentPrinterPicker()
-                    } label: {
-                        Label(pdfManager.selectedPrinterName, systemImage: "printer")
-                            .labelStyle(.titleAndIcon)
+                    ZStack(alignment: .center) {
+                        Button {
+                            guard let host = printerButtonHost else { return }
+                            let rect = host.bounds.insetBy(dx: 0, dy: -4)
+                            pdfManager.presentPrinterPicker(from: host, sourceRect: rect)
+                        } label: {
+                            Label(pdfManager.selectedPrinterName, systemImage: "printer")
+                                .labelStyle(.titleAndIcon)
+                        }
+                        .buttonStyle(.bordered)
+                        ViewAnchor(view: $printerButtonHost).allowsHitTesting(false)
                     }
-                    .buttonStyle(.bordered)
                 }
 
                 ToolbarItem(placement: .confirmationAction) {
@@ -103,18 +113,19 @@ struct PrintPreviewSheet: View {
                             startPrint()
                         }
                         .buttonStyle(.borderedProminent)
-                        .disabled(pdfManager.pdfDocument == nil || pageCount == 0 || (choice == .custom && customRange == nil))
+                        .disabled(pdfManager.pdfDocument == nil || pageCount == 0 || (choice == .custom && customPages.isEmpty))
                     }
                 }
             }
             .onAppear {
-                currentPage = min(max(1, currentPage), max(1, pageCount))
+                currentPage = max(1, pdfManager.editorCurrentPage)
                 applyQualityPreset(qualityPreset)
                 rebuildPreviewDocument()
+                pdfManager.restoreLastPrinterIfAvailable()
             }
             .onChange(of: choice) { _, _ in rebuildPreviewDocument() }
-            .onChange(of: customRange) { _, _ in rebuildPreviewDocument() }
-            .onChange(of: currentPage) { _, _ in if choice == .current { rebuildPreviewDocument() } }
+            .onChange(of: customPages) { _, _ in if choice == .custom { rebuildPreviewDocument() } }
+            .onChange(of: pdfManager.editorCurrentPage) { _, _ in if choice == .current { rebuildPreviewDocument() } }
         }
     }
 
@@ -132,7 +143,13 @@ struct PrintPreviewSheet: View {
                         TextField("ex 1-3 or 1,2,3 or 1-2,4", text: $customInput)
                             .textInputAutocapitalization(.never)
                             .keyboardType(.numbersAndPunctuation)
-                            .onChange(of: customInput) { _, _ in validateAndParseCustom() }
+                            .focused($customFieldFocused)
+                            .onChange(of: customInput) { _, _ in
+                                customDebounce?.cancel()
+                                let work = DispatchWorkItem { parseCustomPages() }
+                                customDebounce = work
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35, execute: work)
+                            }
                         if let warning = customWarning {
                             Text(warning).font(.footnote).foregroundStyle(.red)
                         }
@@ -260,20 +277,18 @@ struct PrintPreviewSheet: View {
             displayPage = min(max(1, displayPage), base.pageCount)
 
         case .current:
-            let idx = clamp(currentPage, 1, max(1, base.pageCount)) - 1
+            let idx = clamp(pdfManager.editorCurrentPage, 1, max(1, base.pageCount)) - 1
             let one = PDFDocument()
             if let p = base.page(at: idx) { one.insert(p, at: 0) }
             previewDoc = one
             displayPage = 1
 
         case .custom:
-            guard let r = customRange else { previewDoc = nil; displayPage = 1; return }
-            let start = max(1, r.lowerBound)
-            let end = min(base.pageCount, r.upperBound)
+            guard !customPages.isEmpty else { previewDoc = nil; displayPage = 1; return }
             let sub = PDFDocument()
             var insert = 0
-            for i in (start-1)...(end-1) {
-                if let p = base.page(at: i) { sub.insert(p, at: insert); insert += 1 }
+            for p in customPages {
+                if let page = base.page(at: p - 1) { sub.insert(page, at: insert); insert += 1 }
             }
             previewDoc = sub
             displayPage = min(max(1, displayPage), sub.pageCount)
@@ -283,15 +298,27 @@ struct PrintPreviewSheet: View {
     // MARK: - Actions
 
     private func shareSelection() {
-        let selection: PDFManager.PageSelectionMode = {
-            switch choice {
-            case .all: return .all
-            case .current: return .current(currentPage)
-            case .custom: return .custom(customRange ?? 1...max(1, pageCount))
+        let baseData: Data?
+        switch choice {
+        case .all:
+            baseData = pdfManager.pdfDocument?.dataRepresentation()
+        case .current:
+            baseData = pdfManager.subsetPDFData(for: .current(pdfManager.editorCurrentPage))
+        case .custom:
+            if customPages.isEmpty { baseData = nil }
+            else {
+                let sub = PDFDocument()
+                var insert = 0
+                for p in customPages.sorted() {
+                    if let page = pdfManager.pdfDocument?.page(at: p - 1) {
+                        sub.insert(page, at: insert); insert += 1
+                    }
+                }
+                baseData = sub.dataRepresentation()
             }
-        }()
+        }
 
-        guard let baseData = pdfManager.subsetPDFData(for: selection) else { return }
+        guard let baseData = baseData else { return }
 
         let presentActivity: (Data) -> Void = { data in
             let activityVC = UIActivityViewController(activityItems: [data], applicationActivities: nil)
@@ -328,15 +355,29 @@ struct PrintPreviewSheet: View {
         guard let _ = pdfManager.pdfDocument else { return }
         isPrinting = true
 
-        let selection: PDFManager.PageSelectionMode = {
-            switch choice {
-            case .all: return .all
-            case .current: return .current(currentPage)
-            case .custom: return .custom(customRange ?? 1...max(1, pageCount))
-            }
-        }()
+        let selectionData: Data?
+        switch choice {
+        case .all:
+            selectionData = pdfManager.pdfDocument?.dataRepresentation()
 
-        guard let data = pdfManager.subsetPDFData(for: selection) else {
+        case .current:
+            selectionData = pdfManager.subsetPDFData(for: .current(pdfManager.editorCurrentPage))
+
+        case .custom:
+            if customPages.isEmpty { selectionData = nil }
+            else {
+                let sub = PDFDocument()
+                var insert = 0
+                for p in customPages.sorted() {
+                    if let page = pdfManager.pdfDocument?.page(at: p - 1) {
+                        sub.insert(page, at: insert); insert += 1
+                    }
+                }
+                selectionData = sub.dataRepresentation()
+            }
+        }
+
+        guard let data = selectionData else {
             isPrinting = false; return
         }
 
@@ -411,6 +452,17 @@ struct PrintPreviewSheet: View {
     private func clamp(_ v: Int, _ lo: Int, _ hi: Int) -> Int { min(hi, max(lo, v)) }
 }
 
+// MARK: - View Anchor for UIKit Presentation
+private struct ViewAnchor: UIViewRepresentable {
+    @Binding var view: UIView?
+    func makeUIView(context: Context) -> UIView {
+        let v = UIView(frame: .zero)
+        DispatchQueue.main.async { self.view = v }
+        return v
+    }
+    func updateUIView(_ uiView: UIView, context: Context) {}
+}
+
 private struct RadioRow: View {
     let title: String
     let isOn: Bool
@@ -430,47 +482,37 @@ private struct RadioRow: View {
 }
 
 extension PrintPreviewSheet {
-    /// Parse "1-5,8,11-13" -> a closed range IF it represents one contiguous range.
-    /// For non-contiguous, we compress into the min...max range for simplicity in this UI,
-    /// and show a warning that non-contiguous ranges will print the full span.
-    private func validateAndParseCustom() {
+    /// Parse "1-5,8,11-13" into an exact list of pages (non-contiguous supported)
+    private func parseCustomPages() {
         customWarning = nil
-        guard pageCount > 0 else { customRange = nil; return }
+        guard pageCount > 0 else { customPages = []; previewDoc = nil; return }
 
-        let tokens = customInput.replacingOccurrences(of: " ", with: "").split(separator: ",")
-        var indices: [Int] = []
+        let cleaned = customInput.replacingOccurrences(of: " ", with: "")
+        if cleaned.isEmpty { customPages = []; previewDoc = nil; return }
 
-        func addRange(_ a: Int, _ b: Int) {
-            let lo = clamp(min(a, b), 1, pageCount)
-            let hi = clamp(max(a, b), 1, pageCount)
-            indices.append(contentsOf: Array(lo...hi))
-        }
+        var pages = Set<Int>()
 
-        for tok in tokens where !tok.isEmpty {
-            if tok.contains("-") {
-                let parts = tok.split(separator: "-")
-                if parts.count == 2, let a = Int(parts[0]), let b = Int(parts[1]) {
-                    addRange(a, b)
-                } else { customWarning = "Invalid range near \"\(tok)\"" }
-            } else if let n = Int(tok) {
-                addRange(n, n)
+        for token in cleaned.split(separator: ",") {
+            if token.contains("-") {
+                let parts = token.split(separator: "-")
+                guard parts.count == 2, let a = Int(parts[0]), let b = Int(parts[1]) else {
+                    customWarning = "Invalid range near \"\(token)\""
+                    continue
+                }
+                let lo = clamp(min(a, b), 1, pageCount)
+                let hi = clamp(max(a, b), 1, pageCount)
+                for p in lo...hi { pages.insert(p) }
+            } else if let p = Int(token) {
+                let clamped = clamp(p, 1, pageCount)
+                pages.insert(clamped)
             } else {
-                customWarning = "Invalid token \"\(tok)\""
+                customWarning = "Invalid token \"\(token)\""
             }
         }
 
-        if indices.isEmpty {
-            customRange = nil
-            if !customInput.isEmpty { customWarning = "Enter a range like 1-3, 5, 8-10" }
-            return
-        }
+        let sorted = pages.sorted()
+        customPages = sorted
 
-        let lo = indices.min()!
-        let hi = indices.max()!
-        if Set(indices) != Set(lo...hi) {
-            customWarning = "Non-contiguous pages will be printed as \(lo)-\(hi)."
-        }
-        customRange = lo...hi
         rebuildPreviewDocument()
     }
 }

@@ -57,6 +57,11 @@ class PDFManager: ObservableObject {
     // MARK: - Selected Printer
     @Published var selectedPrinterName: String = "Select Printer"
     @Published var selectedPrinter: UIPrinter?
+
+    // MARK: - Editor Current Page (1-based)
+    @Published var editorCurrentPage: Int = 1
+
+    private let printerURLKey = "selected.printer.url"
     
     // ✅ MARGIN SETTINGS: One entry per page
     @Published var marginSettings: [MarginSettings] = []
@@ -542,32 +547,30 @@ class PDFManager: ObservableObject {
         return newDoc.dataRepresentation()
     }
 
-    /// Present the system printer picker and store selection
-    func presentPrinterPicker() {
-        let picker = UIPrinterPickerController(initiallySelectedPrinter: selectedPrinter)
-
-        // Find the top-most presenter (SwiftUI sheet is already presented)
-        guard let scene = UIApplication.shared.connectedScenes
-                .compactMap({ $0 as? UIWindowScene })
-                .first(where: { $0.activationState == .foregroundActive }),
-              var presenter = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController
-        else {
-            picker.present(animated: true) { controller, userDidSelect, _ in
-                if userDidSelect {
-                    self.selectedPrinter = controller.selectedPrinter
-                    self.selectedPrinterName = controller.selectedPrinter?.displayName ?? "Selected Printer"
-                }
+    /// Restore last-used printer from UserDefaults
+    func restoreLastPrinterIfAvailable() {
+        guard selectedPrinter == nil,
+              let s = UserDefaults.standard.string(forKey: printerURLKey),
+              let url = URL(string: s) else { return }
+        selectedPrinter = UIPrinter(url: url)
+        selectedPrinter?.contactPrinter { available in
+            DispatchQueue.main.async {
+                self.selectedPrinterName = available ? (self.selectedPrinter?.displayName ?? "Selected Printer")
+                                                     : "Select Printer"
             }
-            return
         }
+    }
 
-        while let next = presenter.presentedViewController { presenter = next } // climb to top-most
-
-        // Present as a popover anchored inside the already-presented sheet
-        picker.present(from: presenter.view.bounds, in: presenter.view, animated: true) { controller, userDidSelect, _ in
+    /// Present picker anchored to a specific UIView and rect
+    func presentPrinterPicker(from sourceView: UIView, sourceRect: CGRect) {
+        let picker = UIPrinterPickerController(initiallySelectedPrinter: selectedPrinter)
+        picker.present(from: sourceRect, in: sourceView, animated: true) { controller, userDidSelect, _ in
             if userDidSelect {
                 self.selectedPrinter = controller.selectedPrinter
                 self.selectedPrinterName = controller.selectedPrinter?.displayName ?? "Selected Printer"
+                if let url = controller.selectedPrinter?.url {
+                    UserDefaults.standard.set(url.absoluteString, forKey: self.printerURLKey)
+                }
             }
         }
     }

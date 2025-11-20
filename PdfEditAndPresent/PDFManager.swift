@@ -545,11 +545,14 @@ class PDFManager: ObservableObject {
     /// Present the system printer picker and store selection
     func presentPrinterPicker() {
         let picker = UIPrinterPickerController(initiallySelectedPrinter: selectedPrinter)
+
+        // Find the top-most presenter (SwiftUI sheet is already presented)
         guard let scene = UIApplication.shared.connectedScenes
                 .compactMap({ $0 as? UIWindowScene })
                 .first(where: { $0.activationState == .foregroundActive }),
-              let root = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController else {
-            picker.present(animated: true) { (controller, userDidSelect, error) in
+              var presenter = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController
+        else {
+            picker.present(animated: true) { controller, userDidSelect, _ in
                 if userDidSelect {
                     self.selectedPrinter = controller.selectedPrinter
                     self.selectedPrinterName = controller.selectedPrinter?.displayName ?? "Selected Printer"
@@ -558,10 +561,13 @@ class PDFManager: ObservableObject {
             return
         }
 
-        picker.present(from: root.view.bounds, in: root.view, animated: true) { [weak self] (controller, userDidSelect, error) in
+        while let next = presenter.presentedViewController { presenter = next } // climb to top-most
+
+        // Present as a popover anchored inside the already-presented sheet
+        picker.present(from: presenter.view.bounds, in: presenter.view, animated: true) { controller, userDidSelect, _ in
             if userDidSelect {
-                self?.selectedPrinter = controller.selectedPrinter
-                self?.selectedPrinterName = controller.selectedPrinter?.displayName ?? "Selected Printer"
+                self.selectedPrinter = controller.selectedPrinter
+                self.selectedPrinterName = controller.selectedPrinter?.displayName ?? "Selected Printer"
             }
         }
     }

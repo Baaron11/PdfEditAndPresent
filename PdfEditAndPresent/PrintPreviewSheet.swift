@@ -62,9 +62,9 @@ struct PrintPreviewSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     HStack(spacing: 10) {
                         Button("As PDF") {
-                            // Use your existing Save As flow
-                            // If Save As lives on DocumentManager, call that here instead.
-                            DocumentManager.shared.showSaveAsExporter = true
+                            DocumentManager.shared.saveDocumentAs { success, _ in
+                                if success { dismiss() }
+                            }
                         }
                         Button(isPrinting ? "Printing..." : "Print") {
                             startPrint()
@@ -85,26 +85,22 @@ struct PrintPreviewSheet: View {
 
     private var controls: some View {
         Form {
-            Section("Pages") {
-                Picker("", selection: $choice) {
-                    Text("All Pages").tag(PagesChoice.all)
-                    Text("Custom").tag(PagesChoice.custom)
-                    Text("Current Page Only").tag(PagesChoice.current)
-                }
-                .pickerStyle(.inline)
+                Section("Pages") {
+                RadioRow(title: "All Pages", isOn: choice == .all) { choice = .all }
+                RadioRow(title: "Custom", isOn: choice == .custom) { choice = .custom }
+                RadioRow(title: "Current Page Only", isOn: choice == .current) { choice = .current }
 
                 if choice == .custom {
                     VStack(alignment: .leading, spacing: 6) {
                         TextField("ex 1-3 or 1,2,3 or 1-2,4", text: $customInput)
                             .textInputAutocapitalization(.never)
                             .keyboardType(.numbersAndPunctuation)
-                            .onChange(of: customInput) { _, _ in
-                                validateAndParseCustom()
-                            }
+                            .onChange(of: customInput) { _, _ in validateAndParseCustom() }
                         if let warning = customWarning {
                             Text(warning).font(.footnote).foregroundStyle(.red)
                         }
                     }
+                    .padding(.top, 2)
                 }
             }
 
@@ -168,19 +164,18 @@ struct PrintPreviewSheet: View {
     }
 
     private var pager: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 12) {
             Button {
                 currentPage = max(1, currentPage - 1)
                 syncChoiceForCurrentPage()
-            } label: {
-                Image(systemName: "chevron.left")
-            }
+            } label: { Image(systemName: "chevron.left") }
             .disabled(currentPage <= 1)
 
-            HStack(spacing: 6) {
+            HStack(spacing: 8) {
                 Text("Page")
-                TextField("1", value: $currentPage, format: .number)
-                    .frame(width: 52)
+                TextField("", value: $currentPage, format: .number)
+                    .frame(width: 56, height: 30)
+                    .textFieldStyle(.roundedBorder)
                     .multilineTextAlignment(.center)
                     .keyboardType(.numberPad)
                     .onChange(of: currentPage) { _, newValue in
@@ -189,13 +184,15 @@ struct PrintPreviewSheet: View {
                     }
                 Text("of \(max(1, pageCount))")
             }
+            .font(.callout)
+            .lineLimit(1)
+            .minimumScaleFactor(0.9)
+            .fixedSize(horizontal: true, vertical: false)
 
             Button {
                 currentPage = min(max(1, pageCount), currentPage + 1)
                 syncChoiceForCurrentPage()
-            } label: {
-                Image(systemName: "chevron.right")
-            }
+            } label: { Image(systemName: "chevron.right") }
             .disabled(currentPage >= max(1, pageCount))
 
             Spacer()
@@ -287,7 +284,27 @@ struct PrintPreviewSheet: View {
     }
 
     private func clamp(_ v: Int, _ lo: Int, _ hi: Int) -> Int { min(hi, max(lo, v)) }
+}
 
+private struct RadioRow: View {
+    let title: String
+    let isOn: Bool
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            HStack {
+                Image(systemName: isOn ? "largecircle.fill.circle" : "circle")
+                    .foregroundStyle(isOn ? .accentColor : .secondary)
+                Text(title)
+                Spacer()
+            }
+        }
+        .buttonStyle(.plain)
+        .contentShape(Rectangle())
+    }
+}
+
+extension PrintPreviewSheet {
     /// Parse "1-5,8,11-13" -> a closed range IF it represents one contiguous range.
     /// For non-contiguous, we compress into the min...max range for simplicity in this UI,
     /// and show a warning that non-contiguous ranges will print the full span.

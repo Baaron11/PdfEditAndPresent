@@ -32,6 +32,13 @@ class PDFManager: ObservableObject {
         case afterPage
     }
     @Published var mergeInsertMethod: MergeInsertMethod = .atEnd
+
+    // MARK: - Print Preview State
+    @Published var showPrintPreview: Bool = false
+
+    // Print settings enums
+    enum DuplexMode: String, CaseIterable { case none, shortEdge, longEdge }
+    enum PageOrientation: String, CaseIterable { case auto, portrait, landscape }
     
     // ✅ MARGIN SETTINGS: One entry per page
     @Published var marginSettings: [MarginSettings] = []
@@ -487,6 +494,72 @@ class PDFManager: ObservableObject {
             insertPDF(from: url, at: pageCount)
         }
         print("✅ Merged \(urls.count) PDF(s) into document")
+    }
+
+    // MARK: - Print Preview Methods
+
+    /// Entry point from File menu
+    func presentPrintPreview() {
+        showPrintPreview = true
+    }
+
+    /// Build a subset PDF from the selected page range. Returns Data (for printing).
+    func makeSubsetPDFData(range: ClosedRange<Int>?) -> Data? {
+        guard let doc = pdfDocument else { return nil }
+        // If no range or range covers all pages, just return full data
+        if range == nil || (range!.lowerBound == 1 && range!.upperBound == doc.pageCount) {
+            return doc.dataRepresentation()
+        }
+        // Create a new PDF with selected pages (1-based indices)
+        let newDoc = PDFDocument()
+        let start = max(1, range!.lowerBound)
+        let end   = min(doc.pageCount, range!.upperBound)
+        var insertIndex = 0
+        for pageIndex in (start - 1)...(end - 1) {
+            if let page = doc.page(at: pageIndex) {
+                newDoc.insert(page, at: insertIndex)
+                insertIndex += 1
+            }
+        }
+        return newDoc.dataRepresentation()
+    }
+
+    /// Present the system print interaction controller with data + options
+    func presentPrintController(pdfData: Data,
+                                jobName: String,
+                                copies: Int,
+                                color: Bool,
+                                duplex: DuplexMode,
+                                orientation: PageOrientation) {
+        let printInfo = UIPrintInfo(dictionary: nil)
+        printInfo.jobName = jobName
+        printInfo.outputType = color ? .photo : .grayscale
+        switch duplex {
+        case .none:      printInfo.duplex = .none
+        case .shortEdge: printInfo.duplex = .shortEdge
+        case .longEdge:  printInfo.duplex = .longEdge
+        }
+        switch orientation {
+        case .auto:      printInfo.orientation = .portrait
+        case .portrait:  printInfo.orientation = .portrait
+        case .landscape: printInfo.orientation = .landscape
+        }
+
+        let controller = UIPrintInteractionController.shared
+        controller.printInfo = printInfo
+        controller.printingItem = pdfData
+        controller.showsNumberOfCopies = true
+        controller.showsPaperSelectionForLoadedPapers = true
+
+        // Present on the active scene
+        if let scene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first(where: { $0.activationState == .foregroundActive }),
+           let root = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController {
+            controller.present(from: root.view.bounds, in: root.view, animated: true, completionHandler: nil)
+        } else {
+            controller.present(animated: true, completionHandler: nil)
+        }
     }
 
     /// Move a page from one position to another

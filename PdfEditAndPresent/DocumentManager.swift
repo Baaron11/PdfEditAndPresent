@@ -152,15 +152,33 @@ final class DocumentManager: ObservableObject {
 
     /// Rewrites the PDF with optimization options
     func rewritePDF(with options: PDFOptimizeOptions, completion: @escaping (Result<URL, Error>) -> Void) {
-        guard let document = pdfViewModel?.currentDocument,
-              let sourceURL = fileURL else {
+        guard let document = pdfViewModel?.currentDocument else {
             completion(.failure(DocumentManagerError.noDocument))
             return
         }
 
+        // Determine source URL - use existing fileURL or create temp for new docs
+        let sourceURL: URL
+        let isNewDocument = (fileURL == nil)
+
+        if let existingURL = fileURL {
+            sourceURL = existingURL
+        } else {
+            // New/unsaved document - write to temp first
+            let tempURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString)
+                .appendingPathExtension("pdf")
+
+            guard document.write(to: tempURL) else {
+                completion(.failure(DocumentManagerError.optimizationFailed))
+                return
+            }
+            sourceURL = tempURL
+        }
+
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             do {
-                let optimizedURL = try self?.optimizePDF(document: document, sourceURL: sourceURL, options: options)
+                let optimizedURL = try self?.optimizePDF(document: document, sourceURL: sourceURL, options: options, isNewDocument: isNewDocument)
 
                 DispatchQueue.main.async {
                     if let url = optimizedURL {
@@ -168,7 +186,18 @@ final class DocumentManager: ObservableObject {
                         if let optimizedDoc = PDFDocument(url: url) {
                             self?.pdfViewModel?.currentDocument = optimizedDoc
                             self?.pdfManager?.setPDFDocument(optimizedDoc)
+
+                            // For new documents, adopt the temp URL as the new fileURL
+                            if isNewDocument {
+                                self?.pdfViewModel?.currentURL = url
+                                self?.updateCurrentFileName()
+                            }
+
                             self?.hasUnsavedChanges = false
+
+                            // Update recent files
+                            RecentFilesManager.shared.addOrBump(url: url)
+
                             completion(.success(url))
                         } else {
                             completion(.failure(DocumentManagerError.failedToLoadOptimized))
@@ -185,7 +214,7 @@ final class DocumentManager: ObservableObject {
         }
     }
 
-    private func optimizePDF(document: PDFDocument, sourceURL: URL, options: PDFOptimizeOptions) throws -> URL {
+    private func optimizePDF(document: PDFDocument, sourceURL: URL, options: PDFOptimizeOptions, isNewDocument: Bool = false) throws -> URL {
         // Create output URL
         let tempDir = FileManager.default.temporaryDirectory
         let outputFilename = sourceURL.deletingPathExtension().lastPathComponent + "_optimized.pdf"
@@ -197,6 +226,11 @@ final class DocumentManager: ObservableObject {
                 try FileManager.default.removeItem(at: outputURL)
             }
             try FileManager.default.copyItem(at: sourceURL, to: outputURL)
+
+            // For new documents with original preset, return the temp URL
+            if isNewDocument {
+                return outputURL
+            }
             return outputURL
         }
 
@@ -298,6 +332,11 @@ final class DocumentManager: ObservableObject {
         }
 
         context.closePDF()
+
+        // For new documents, keep in temp directory
+        if isNewDocument {
+            return outputURL
+        }
 
         // Replace original file with optimized version
         let finalURL = sourceURL

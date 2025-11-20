@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct ChangeFileSizeSheet: View {
+    @ObservedObject var pdfManager: PDFManager
     @Environment(\.dismiss) private var dismiss
     @State private var preset: PDFOptimizeOptions.Preset = .smaller
     @State private var imageQuality: Double = 0.75
@@ -61,16 +62,18 @@ struct ChangeFileSizeSheet: View {
                         let opts = currentOptions()
                         isWorking = true
                         DocumentManager.shared.rewritePDF(with: opts) { result in
-                            isWorking = false
-                            switch result {
-                            case .success:
-                                dismiss()
-                            case .failure(let err):
-                                errorMessage = err.localizedDescription
+                            DispatchQueue.main.async {
+                                isWorking = false
+                                switch result {
+                                case .success:
+                                    dismiss()
+                                case .failure(let err):
+                                    errorMessage = err.localizedDescription
+                                }
                             }
                         }
                     }
-                    .disabled(isWorking)
+                    .disabled(isWorking || pdfManager.pdfDocument == nil)
                 }
             }
             .alert("Optimization Failed", isPresented: .constant(errorMessage != nil), actions: {

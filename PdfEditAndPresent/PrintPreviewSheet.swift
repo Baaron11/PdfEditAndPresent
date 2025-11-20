@@ -59,16 +59,41 @@ struct PrintPreviewSheet: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
+
+                // Printer dropdown between Cancel and right controls
+                ToolbarItem(placement: .principal) {
+                    Button {
+                        pdfManager.presentPrinterPicker()
+                    } label: {
+                        Label(pdfManager.selectedPrinterName, systemImage: "printer")
+                            .labelStyle(.titleAndIcon)
+                    }
+                    .buttonStyle(.bordered)
+                }
+
                 ToolbarItem(placement: .confirmationAction) {
-                    HStack(spacing: 10) {
+                    HStack(spacing: 8) {
+                        // Share button
+                        Button {
+                            shareSelection()
+                        } label: {
+                            Image(systemName: "square.and.arrow.up")
+                        }
+                        .buttonStyle(.bordered)
+
+                        // As PDF
                         Button("As PDF") {
-                            DocumentManager.shared.saveDocumentAs { success, _ in
+                            pdfManager.saveDocumentAs { success, _ in
                                 if success { dismiss() }
                             }
                         }
+                        .buttonStyle(.bordered)
+
+                        // Print
                         Button(isPrinting ? "Printing..." : "Print") {
                             startPrint()
                         }
+                        .buttonStyle(.borderedProminent)
                         .disabled(pdfManager.pdfDocument == nil || pageCount == 0 || (choice == .custom && customRange == nil))
                     }
                 }
@@ -203,6 +228,48 @@ struct PrintPreviewSheet: View {
 
     // MARK: - Actions
 
+    private func shareSelection() {
+        let selection: PDFManager.PageSelectionMode = {
+            switch choice {
+            case .all: return .all
+            case .current: return .current(currentPage)
+            case .custom: return .custom(customRange ?? 1...max(1, pageCount))
+            }
+        }()
+
+        guard let baseData = pdfManager.subsetPDFData(for: selection) else { return }
+
+        let presentActivity: (Data) -> Void = { data in
+            let activityVC = UIActivityViewController(activityItems: [data], applicationActivities: nil)
+            activityVC.excludedActivityTypes = []
+            if let scene = UIApplication.shared.connectedScenes
+                .compactMap({ $0 as? UIWindowScene })
+                .first(where: { $0.activationState == .foregroundActive }),
+               let root = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController {
+                if let pop = activityVC.popoverPresentationController {
+                    pop.sourceView = root.view
+                    pop.sourceRect = CGRect(x: root.view.bounds.midX, y: 10, width: 1, height: 1)
+                    pop.permittedArrowDirections = []
+                }
+                root.present(activityVC, animated: true)
+            }
+        }
+
+        if qualityPreset == .original {
+            presentActivity(baseData)
+        } else {
+            let opts = currentOptimizeOptions()
+            pdfManager.optimizePDFData(baseData, options: opts) { result in
+                DispatchQueue.main.async {
+                    switch result {
+                    case .success(let optimized): presentActivity(optimized)
+                    case .failure: presentActivity(baseData)
+                    }
+                }
+            }
+        }
+    }
+
     private func startPrint() {
         guard let _ = pdfManager.pdfDocument else { return }
         isPrinting = true
@@ -294,7 +361,7 @@ private struct RadioRow: View {
         Button(action: action) {
             HStack {
                 Image(systemName: isOn ? "largecircle.fill.circle" : "circle")
-                    .foregroundStyle(isOn ? .accentColor : .secondary)
+                    .foregroundStyle(isOn ? Color.accentColor : Color.secondary)
                 Text(title)
                 Spacer()
             }

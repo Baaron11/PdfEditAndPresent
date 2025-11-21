@@ -227,100 +227,154 @@ struct PrintPreviewSheet: View {
         ) { _ in }
     }
 
-    // MARK: - Views
+    // MARK: - Controls (split to reduce generic depth)
 
+    @ViewBuilder
     private var controls: some View {
         Form {
-            Section("Pages") {
-                RadioRow(title: "All Pages", isOn: choice == .all) { choice = .all }
-                RadioRow(title: "Custom", isOn: choice == .custom) { choice = .custom }
-                RadioRow(title: "Current Page Only", isOn: choice == .current) { choice = .current }
+            pagesSection
+            optionsSection
+            layoutSection
+        }
+    }
 
-                if choice == .custom {
-                    VStack(alignment: .leading, spacing: 6) {
-                        TextField("ex 1-3 or 1,2,3 or 1-2,4", text: $customInput)
-                            .textInputAutocapitalization(.never)
-                            .keyboardType(.numbersAndPunctuation)
-                            .focused($customFieldFocused)
-                            .onChange(of: customInput) { _, _ in
-                                // Debounce parsing so the field keeps focus while typing
-                                customDebounce?.cancel()
-                                let work = DispatchWorkItem { parseCustomPages(keepFocus: true) }
-                                customDebounce = work
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.30, execute: work)
-                            }
-                            .onAppear { DispatchQueue.main.async { customFieldFocused = true } }
+    // MARK: Pages
 
-                        if let warning = customWarning {
-                            Text(warning).font(.footnote).foregroundStyle(.red)
-                        }
-                    }
-                    .padding(.top, 2)
-                }
+    @ViewBuilder
+    private var pagesSection: some View {
+        Section("Pages") {
+            RadioRow(title: "All Pages", isOn: choice == .all)     { choice = .all }
+            RadioRow(title: "Custom",   isOn: choice == .custom)   { choice = .custom }
+            RadioRow(title: "Current Page Only", isOn: choice == .current) { choice = .current }
+
+            if choice == .custom {
+                customPagesEditor
             }
+        }
+    }
 
-            Section("Options") {
-                Stepper("Copies: \(copies)", value: $copies, in: 1...99)
-                Toggle("Color", isOn: $color)
-                Picker("Double Sided", selection: $duplex) {
-                    Text("No").tag(PDFManager.DuplexMode.none)
-                    Text("Short Edge").tag(PDFManager.DuplexMode.shortEdge)
-                    Text("Long Edge").tag(PDFManager.DuplexMode.longEdge)
+    @ViewBuilder
+    private var customPagesEditor: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            TextField("ex 1-3 or 1,2,3 or 1-2,4", text: $customInput)
+                .textInputAutocapitalization(.never)
+                .keyboardType(.numbersAndPunctuation)
+                .focused($customFieldFocused)
+                .onChange(of: customInput) { _, _ in
+                    // Debounce parsing so the field keeps focus while typing
+                    customDebounce?.cancel()
+                    let work = DispatchWorkItem { parseCustomPages(keepFocus: true) }
+                    customDebounce = work
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.30, execute: work)
                 }
-                Picker("Orientation", selection: $orientation) {
-                    Text("Auto").tag(PDFManager.PageOrientation.auto)
-                    Text("Portrait").tag(PDFManager.PageOrientation.portrait)
-                    Text("Landscape").tag(PDFManager.PageOrientation.landscape)
-                }
-                Toggle("Annotations", isOn: $includeAnnotations)
-                    .tint(.accentColor)
+                .onAppear { DispatchQueue.main.async { customFieldFocused = true } }
+
+            if let warning = customWarning {
+                Text(warning)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
             }
+        }
+        .padding(.top, 2)
+    }
 
-            Section("Layout") {
-                Picker("Paper Size", selection: $paperSize) {
-                    Text("System Default").tag(PDFManager.PaperSize.systemDefault)
-                    Text("Letter").tag(PDFManager.PaperSize.letter)
-                    Text("Legal").tag(PDFManager.PaperSize.legal)
-                    Text("A4").tag(PDFManager.PaperSize.a4)
-                }
-                Picker("Pages per Sheet", selection: $pagesPerSheet) {
-                    Text("1").tag(1); Text("2").tag(2); Text("4").tag(4); Text("6").tag(6); Text("8").tag(8)
-                }
-                Picker("Border", selection: $borderStyle) {
-                    Text("None").tag(PDFManager.BorderStyle.none)
-                    Text("Single HairLine").tag(PDFManager.BorderStyle.singleHair)
-                    Text("Single Thin Line").tag(PDFManager.BorderStyle.singleThin)
-                    Text("Double HairLine").tag(PDFManager.BorderStyle.doubleHair)
-                    Text("Double Thin Line").tag(PDFManager.BorderStyle.doubleThin)
-                }
-                Picker("Quality", selection: $qualityPreset) {
-                    Text("Original").tag(PDFOptimizeOptions.Preset.original)
-                    Text("Smaller").tag(PDFOptimizeOptions.Preset.smaller)
-                    Text("Smallest").tag(PDFOptimizeOptions.Preset.smallest)
-                    Text("Custom").tag(PDFOptimizeOptions.Preset.custom)
-                }
-                .onChange(of: qualityPreset) { _, newValue in
-                    applyQualityPreset(newValue)
-                }
+    // MARK: Options
 
-                if qualityPreset == .custom {
-                    HStack {
-                        Text("Image Quality")
-                        Slider(value: $imageQuality, in: 0.4...1.0, step: 0.05)
-                        Text("\(Int(imageQuality * 100))%")
-                    }
-                    HStack {
-                        Text("Max Image DPI")
-                        Slider(value: $maxDPI, in: 72...600, step: 12)
-                        Text("\(Int(maxDPI))")
-                    }
-                    Toggle("Downsample Images", isOn: $downsample)
-                    Toggle("Grayscale Images", isOn: $grayscale)
-                    Toggle("Strip Metadata", isOn: $stripMetadata)
-                    Toggle("Flatten Annotations", isOn: $flatten)
-                    Toggle("Recompress Streams", isOn: $recompress)
-                }
+    @ViewBuilder
+    private var optionsSection: some View {
+        Section("Options") {
+            Stepper("Copies: \(copies)", value: $copies, in: 1...99)
+
+            Toggle("Color", isOn: $color)
+
+            // Make all picker tag types explicit to help the type-checker
+            Picker("Double Sided", selection: $duplex) {
+                Text("No").tag(PDFManager.DuplexMode.none)
+                Text("Short Edge").tag(PDFManager.DuplexMode.shortEdge)
+                Text("Long Edge").tag(PDFManager.DuplexMode.longEdge)
             }
+            .pickerStyle(.navigationLink)
+
+            Picker("Orientation", selection: $orientation) {
+                Text("Auto").tag(PDFManager.PageOrientation.auto)
+                Text("Portrait").tag(PDFManager.PageOrientation.portrait)
+                Text("Landscape").tag(PDFManager.PageOrientation.landscape)
+            }
+            .pickerStyle(.navigationLink)
+
+            Toggle("Annotations", isOn: $includeAnnotations)
+                .tint(.accentColor)
+        }
+    }
+
+    // MARK: Layout
+
+    @ViewBuilder
+    private var layoutSection: some View {
+        Section("Layout") {
+            Picker("Paper Size", selection: $paperSize) {
+                Text("System Default").tag(PDFManager.PaperSize.systemDefault)
+                Text("Letter").tag(PDFManager.PaperSize.letter)
+                Text("Legal").tag(PDFManager.PaperSize.legal)
+                Text("A4").tag(PDFManager.PaperSize.a4)
+            }
+            .pickerStyle(.navigationLink)
+
+            Picker("Pages per Sheet", selection: $pagesPerSheet) {
+                Text("1").tag(1)
+                Text("2").tag(2)
+                Text("4").tag(4)
+                Text("6").tag(6)
+                Text("8").tag(8)
+            }
+            .pickerStyle(.navigationLink)
+
+            Picker("Border", selection: $borderStyle) {
+                Text("None").tag(PDFManager.BorderStyle.none)
+                Text("Single HairLine").tag(PDFManager.BorderStyle.singleHair)
+                Text("Single Thin Line").tag(PDFManager.BorderStyle.singleThin)
+                Text("Double HairLine").tag(PDFManager.BorderStyle.doubleHair)
+                Text("Double Thin Line").tag(PDFManager.BorderStyle.doubleThin)
+            }
+            .pickerStyle(.navigationLink)
+
+            qualityPicker
+            customQualityControls // will render empty unless preset == .custom
+        }
+    }
+
+    @ViewBuilder
+    private var qualityPicker: some View {
+        Picker("Quality", selection: $qualityPreset) {
+            Text("Original").tag(PDFOptimizeOptions.Preset.original)
+            Text("Smaller").tag(PDFOptimizeOptions.Preset.smaller)
+            Text("Smallest").tag(PDFOptimizeOptions.Preset.smallest)
+            Text("Custom").tag(PDFOptimizeOptions.Preset.custom)
+        }
+        .pickerStyle(.navigationLink)
+        .onChange(of: qualityPreset) { _, newValue in
+            applyQualityPreset(newValue)
+        }
+    }
+
+    @ViewBuilder
+    private var customQualityControls: some View {
+        if qualityPreset == .custom {
+            HStack {
+                Text("Image Quality")
+                Slider(value: $imageQuality, in: 0.4...1.0, step: 0.05)
+                Text("\(Int(imageQuality * 100))%")
+            }
+            HStack {
+                Text("Max Image DPI")
+                Slider(value: $maxDPI, in: 72...600, step: 12)
+                Text("\(Int(maxDPI))")
+            }
+            Toggle("Downsample Images", isOn: $downsample)
+            Toggle("Grayscale Images", isOn: $grayscale)
+            Toggle("Strip Metadata", isOn: $stripMetadata)
+            Toggle("Flatten Annotations", isOn: $flatten)
+            Toggle("Recompress Streams", isOn: $recompress)
         }
     }
 

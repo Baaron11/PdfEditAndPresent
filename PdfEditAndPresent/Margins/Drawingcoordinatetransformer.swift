@@ -2,141 +2,13 @@ import UIKit
 import PDFKit
 import PencilKit
 
-// MARK: - Drawing Coordinate Transformer (Dynamic Canvas)
-/// Converts between view/touch space, a logical canvas (page-sized), and PDF space.
-/// Canvas size is provided by MarginCanvasHelper and typically equals the current page size.
-struct DrawingCoordinateTransformer {
-    
-    let marginHelper: MarginCanvasHelper
-    let canvasViewBounds: CGRect
-    let scaleFactor: CGFloat
-    
-    init(
-        marginHelper: MarginCanvasHelper,
-        canvasViewBounds: CGRect,
-        scaleFactor: CGFloat = 1.0
-    ) {
-        self.marginHelper = marginHelper
-        self.canvasViewBounds = canvasViewBounds
-        self.scaleFactor = scaleFactor
-    }
-    
-    // MARK: - Touch Point Transformation
-    
-    /// UIView touch point → normalized [0,1] → canvas space (page sized)
-    func convertTouchPointToCanvasSpace(_ touchPoint: CGPoint) -> CGPoint {
-        let normalizedX = (touchPoint.x - canvasViewBounds.origin.x) / canvasViewBounds.width
-        let normalizedY = (touchPoint.y - canvasViewBounds.origin.y) / canvasViewBounds.height
-        let clampedX = max(0, min(normalizedX, 1.0))
-        let clampedY = max(0, min(normalizedY, 1.0))
-        
-        let canvasSize = marginHelper.canvasSize
-        return CGPoint(x: clampedX * canvasSize.width, y: clampedY * canvasSize.height)
-    }
-    
-    /// Canvas point → normalized [0,1] → view space
-    func convertCanvasPointToTouchSpace(_ canvasPoint: CGPoint) -> CGPoint {
-        let canvasSize = marginHelper.canvasSize
-        let normalizedX = canvasPoint.x / canvasSize.width
-        let normalizedY = canvasPoint.y / canvasSize.height
-        let clampedX = max(0, min(normalizedX, 1.0))
-        let clampedY = max(0, min(normalizedY, 1.0))
-        
-        return CGPoint(
-            x: canvasViewBounds.origin.x + (clampedX * canvasViewBounds.width),
-            y: canvasViewBounds.origin.y + (clampedY * canvasViewBounds.height)
-        )
-    }
-    
-    // MARK: - PDF Point Transformation
-    
-    func convertDrawingPointToPDFSpace(_ drawingPoint: CGPoint) -> CGPoint? {
-        let canvasPoint = convertTouchPointToCanvasSpace(drawingPoint)
-        return marginHelper.convertDrawingToPDFCoordinate(canvasPoint)
-    }
-    
-    func convertPDFPointToDrawingSpace(_ pdfPoint: CGPoint) -> CGPoint {
-        let canvasPoint = marginHelper.convertPDFToDrawingCoordinate(pdfPoint)
-        return convertCanvasPointToTouchSpace(canvasPoint)
-    }
-    
-    // MARK: - Drawing Transformation
-    
-    func getDisplayTransform() -> CGAffineTransform {
-        let pdfFrame = marginHelper.pdfFrameInCanvas
-        return CGAffineTransform(translationX: pdfFrame.origin.x, y: pdfFrame.origin.y)
-            .scaledBy(x: marginHelper.settings.pdfScale, y: marginHelper.settings.pdfScale)
-    }
-    
-    func getNormalizeTransform() -> CGAffineTransform {
-        let pdfFrame = marginHelper.pdfFrameInCanvas
-        return CGAffineTransform(translationX: -pdfFrame.origin.x, y: -pdfFrame.origin.y)
-            .scaledBy(x: 1.0 / marginHelper.settings.pdfScale, y: 1.0 / marginHelper.settings.pdfScale)
-    }
-    
-    func applyDisplayTransformToContext(_ context: CGContext) {
-        context.concatenate(getDisplayTransform())
-    }
-    
-    func applyNormalizeTransformToContext(_ context: CGContext) {
-        context.concatenate(getNormalizeTransform())
-    }
-    
-    // MARK: - Region Detection
-    
-    func getDrawingArea(_ drawingPoint: CGPoint) -> DrawingArea {
-        let canvasPoint = convertTouchPointToCanvasSpace(drawingPoint)
-        if marginHelper.isPointInPDFArea(canvasPoint) { return .pdf }
-        
-        let margins = marginHelper.getMarginAreas()
-        if margins.top.contains(canvasPoint) { return .margin(.top) }
-        if margins.bottom.contains(canvasPoint) { return .margin(.bottom) }
-        if margins.left.contains(canvasPoint) { return .margin(.left) }
-        if margins.right.contains(canvasPoint) { return .margin(.right) }
-        return .outside
-    }
-    
-    func getMarginRectsInViewSpace() -> [MarginSide: CGRect] {
-        let margins = marginHelper.getMarginAreas()
-        var viewMargins: [MarginSide: CGRect] = [:]
-        viewMargins[.top] = convertMarginRectToViewSpace(margins.top)
-        viewMargins[.bottom] = convertMarginRectToViewSpace(margins.bottom)
-        viewMargins[.left] = convertMarginRectToViewSpace(margins.left)
-        viewMargins[.right] = convertMarginRectToViewSpace(margins.right)
-        return viewMargins
-    }
-    
-    private func convertMarginRectToViewSpace(_ canvasRect: CGRect) -> CGRect {
-        let topLeft = convertCanvasPointToTouchSpace(canvasRect.origin)
-        let bottomRight = convertCanvasPointToTouchSpace(CGPoint(x: canvasRect.maxX, y: canvasRect.maxY))
-        return CGRect(x: topLeft.x, y: topLeft.y, width: bottomRight.x - topLeft.x, height: bottomRight.y - topLeft.y)
-    }
-    
-    func getPDFRectInViewSpace() -> CGRect {
-        convertMarginRectToViewSpace(marginHelper.pdfFrameInCanvas)
-    }
-    
-    func getCanvasRectInViewSpace() -> CGRect {
-        let rect = CGRect(origin: .zero, size: marginHelper.canvasSize)
-        return convertMarginRectToViewSpace(rect)
-    }
-    
-    func isPointWithinCanvas(_ drawingPoint: CGPoint) -> Bool {
-        getCanvasRectInViewSpace().contains(drawingPoint)
-    }
-    
-    func clampPointToDrawableArea(_ drawingPoint: CGPoint) -> CGPoint {
-        let area = getDrawingArea(drawingPoint)
-        if case .pdf = area { return drawingPoint }
-        if case .margin = area { return drawingPoint }
-        
-        let canvasRect = getCanvasRectInViewSpace()
-        let clampedX = max(canvasRect.minX, min(drawingPoint.x, canvasRect.maxX))
-        let clampedY = max(canvasRect.minY, min(drawingPoint.y, canvasRect.maxY))
-        return CGPoint(x: clampedX, y: clampedY)
-    }
+// MARK: - Drawing Region
+enum DrawingRegion: Equatable {
+    case pdf
+    case margin
 }
 
+// MARK: - Drawing Area (Detailed)
 enum DrawingArea: Equatable {
     case pdf
     case margin(MarginSide)
@@ -162,6 +34,222 @@ enum MarginSide: Equatable {
     }
 }
 
+// MARK: - Drawing Coordinate Transformer (Dual-Layer Dynamic Canvas)
+/// Converts between view space, canvas space, and PDF space.
+/// Supports dual-layer drawing with PDF-anchored and margin-anchored strokes.
+struct DrawingCoordinateTransformer {
+
+    let marginHelper: MarginCanvasHelper
+    let canvasViewBounds: CGRect
+    let zoomScale: CGFloat
+    let contentOffset: CGPoint
+
+    init(
+        marginHelper: MarginCanvasHelper,
+        canvasViewBounds: CGRect,
+        zoomScale: CGFloat = 1.0,
+        contentOffset: CGPoint = .zero
+    ) {
+        self.marginHelper = marginHelper
+        self.canvasViewBounds = canvasViewBounds
+        self.zoomScale = zoomScale
+        self.contentOffset = contentOffset
+    }
+
+    // MARK: - Core Geometry
+
+    /// The rectangle where the PDF sits within the logical canvas
+    var pdfFrameInCanvas: CGRect {
+        marginHelper.pdfFrameInCanvas
+    }
+
+    /// Transform to apply to pdfHost and pdfDrawingCanvas (positions PDF content within canvas)
+    var displayTransform: CGAffineTransform {
+        let pdfFrame = marginHelper.pdfFrameInCanvas
+        let scale = marginHelper.settings.pdfScale
+        return CGAffineTransform(translationX: pdfFrame.origin.x, y: pdfFrame.origin.y)
+            .scaledBy(x: scale, y: scale)
+    }
+
+    // MARK: - Coordinate Conversions
+
+    /// Convert view-space point to canvas-space point
+    func viewToCanvas(_ viewPoint: CGPoint) -> CGPoint {
+        let adjustedX = (viewPoint.x + contentOffset.x) / zoomScale
+        let adjustedY = (viewPoint.y + contentOffset.y) / zoomScale
+        return CGPoint(x: adjustedX, y: adjustedY)
+    }
+
+    /// Convert canvas-space point to view-space point
+    func canvasToView(_ canvasPoint: CGPoint) -> CGPoint {
+        let viewX = (canvasPoint.x * zoomScale) - contentOffset.x
+        let viewY = (canvasPoint.y * zoomScale) - contentOffset.y
+        return CGPoint(x: viewX, y: viewY)
+    }
+
+    /// Determine which region a view-space point falls into
+    func region(forViewPoint viewPoint: CGPoint) -> DrawingRegion {
+        let canvasPoint = viewToCanvas(viewPoint)
+        if marginHelper.isPointInPDFArea(canvasPoint) {
+            return .pdf
+        }
+        return .margin
+    }
+
+    /// Detailed area detection for a view-space point
+    func getDrawingArea(_ viewPoint: CGPoint) -> DrawingArea {
+        let canvasPoint = viewToCanvas(viewPoint)
+        if marginHelper.isPointInPDFArea(canvasPoint) { return .pdf }
+
+        let margins = marginHelper.getMarginAreas()
+        if margins.top.contains(canvasPoint) { return .margin(.top) }
+        if margins.bottom.contains(canvasPoint) { return .margin(.bottom) }
+        if margins.left.contains(canvasPoint) { return .margin(.left) }
+        if margins.right.contains(canvasPoint) { return .margin(.right) }
+        return .outside
+    }
+
+    // MARK: - PKDrawing Normalization (PDF Space)
+
+    /// Convert a PKDrawing from canvas space to normalized PDF space (0-1 range)
+    func normalizeDrawingFromCanvasToPDF(_ drawing: PKDrawing) -> PKDrawing {
+        let pdfFrame = marginHelper.pdfFrameInCanvas
+        guard pdfFrame.width > 0 && pdfFrame.height > 0 else { return drawing }
+
+        // Transform: translate to PDF origin, then normalize by PDF size
+        let transform = CGAffineTransform(translationX: -pdfFrame.origin.x, y: -pdfFrame.origin.y)
+            .scaledBy(x: 1.0 / pdfFrame.width, y: 1.0 / pdfFrame.height)
+
+        return drawing.transformed(using: transform)
+    }
+
+    /// Convert a PKDrawing from normalized PDF space back to canvas space
+    func denormalizeDrawingFromPDFToCanvas(_ drawing: PKDrawing) -> PKDrawing {
+        let pdfFrame = marginHelper.pdfFrameInCanvas
+        guard pdfFrame.width > 0 && pdfFrame.height > 0 else { return drawing }
+
+        // Transform: scale by PDF size, then translate to canvas position
+        let transform = CGAffineTransform(scaleX: pdfFrame.width, y: pdfFrame.height)
+            .translatedBy(x: pdfFrame.origin.x / pdfFrame.width, y: pdfFrame.origin.y / pdfFrame.height)
+
+        return drawing.transformed(using: transform)
+    }
+
+    /// Normalize stroke paths from canvas coordinates to PDF-relative coordinates
+    func normalizePathFromCanvasToPDF(_ drawing: PKDrawing) -> PKDrawing {
+        return normalizeDrawingFromCanvasToPDF(drawing)
+    }
+
+    /// Denormalize stroke paths from PDF-relative coordinates to canvas coordinates
+    func denormalizePathFromPDFToCanvas(_ drawing: PKDrawing) -> PKDrawing {
+        return denormalizeDrawingFromPDFToCanvas(drawing)
+    }
+
+    // MARK: - Point Transformations
+
+    /// Convert a canvas point to normalized PDF space (0-1)
+    func canvasPointToPDFNormalized(_ canvasPoint: CGPoint) -> CGPoint? {
+        let pdfFrame = marginHelper.pdfFrameInCanvas
+        guard pdfFrame.contains(canvasPoint) else { return nil }
+
+        let normalizedX = (canvasPoint.x - pdfFrame.origin.x) / pdfFrame.width
+        let normalizedY = (canvasPoint.y - pdfFrame.origin.y) / pdfFrame.height
+        return CGPoint(x: normalizedX, y: normalizedY)
+    }
+
+    /// Convert a normalized PDF point back to canvas space
+    func pdfNormalizedToCanvasPoint(_ normalizedPoint: CGPoint) -> CGPoint {
+        let pdfFrame = marginHelper.pdfFrameInCanvas
+        let canvasX = normalizedPoint.x * pdfFrame.width + pdfFrame.origin.x
+        let canvasY = normalizedPoint.y * pdfFrame.height + pdfFrame.origin.y
+        return CGPoint(x: canvasX, y: canvasY)
+    }
+
+    // MARK: - Legacy Compatibility
+
+    func convertTouchPointToCanvasSpace(_ touchPoint: CGPoint) -> CGPoint {
+        return viewToCanvas(touchPoint)
+    }
+
+    func convertCanvasPointToTouchSpace(_ canvasPoint: CGPoint) -> CGPoint {
+        return canvasToView(canvasPoint)
+    }
+
+    func convertDrawingPointToPDFSpace(_ drawingPoint: CGPoint) -> CGPoint? {
+        let canvasPoint = viewToCanvas(drawingPoint)
+        return marginHelper.convertDrawingToPDFCoordinate(canvasPoint)
+    }
+
+    func convertPDFPointToDrawingSpace(_ pdfPoint: CGPoint) -> CGPoint {
+        let canvasPoint = marginHelper.convertPDFToDrawingCoordinate(pdfPoint)
+        return canvasToView(canvasPoint)
+    }
+
+    func getDisplayTransform() -> CGAffineTransform {
+        return displayTransform
+    }
+
+    func getNormalizeTransform() -> CGAffineTransform {
+        let pdfFrame = marginHelper.pdfFrameInCanvas
+        return CGAffineTransform(translationX: -pdfFrame.origin.x, y: -pdfFrame.origin.y)
+            .scaledBy(x: 1.0 / marginHelper.settings.pdfScale, y: 1.0 / marginHelper.settings.pdfScale)
+    }
+
+    func applyDisplayTransformToContext(_ context: CGContext) {
+        context.concatenate(displayTransform)
+    }
+
+    func applyNormalizeTransformToContext(_ context: CGContext) {
+        context.concatenate(getNormalizeTransform())
+    }
+
+    // MARK: - Rect Conversions
+
+    func getMarginRectsInViewSpace() -> [MarginSide: CGRect] {
+        let margins = marginHelper.getMarginAreas()
+        var viewMargins: [MarginSide: CGRect] = [:]
+        viewMargins[.top] = convertMarginRectToViewSpace(margins.top)
+        viewMargins[.bottom] = convertMarginRectToViewSpace(margins.bottom)
+        viewMargins[.left] = convertMarginRectToViewSpace(margins.left)
+        viewMargins[.right] = convertMarginRectToViewSpace(margins.right)
+        return viewMargins
+    }
+
+    private func convertMarginRectToViewSpace(_ canvasRect: CGRect) -> CGRect {
+        let topLeft = canvasToView(canvasRect.origin)
+        let bottomRight = canvasToView(CGPoint(x: canvasRect.maxX, y: canvasRect.maxY))
+        return CGRect(x: topLeft.x, y: topLeft.y, width: bottomRight.x - topLeft.x, height: bottomRight.y - topLeft.y)
+    }
+
+    func getPDFRectInViewSpace() -> CGRect {
+        convertMarginRectToViewSpace(marginHelper.pdfFrameInCanvas)
+    }
+
+    func getCanvasRectInViewSpace() -> CGRect {
+        let rect = CGRect(origin: .zero, size: marginHelper.canvasSize)
+        return convertMarginRectToViewSpace(rect)
+    }
+
+    func isPointWithinCanvas(_ viewPoint: CGPoint) -> Bool {
+        let canvasPoint = viewToCanvas(viewPoint)
+        let canvasRect = CGRect(origin: .zero, size: marginHelper.canvasSize)
+        return canvasRect.contains(canvasPoint)
+    }
+
+    func clampPointToDrawableArea(_ viewPoint: CGPoint) -> CGPoint {
+        let area = getDrawingArea(viewPoint)
+        if case .pdf = area { return viewPoint }
+        if case .margin = area { return viewPoint }
+
+        let canvasRect = getCanvasRectInViewSpace()
+        let clampedX = max(canvasRect.minX, min(viewPoint.x, canvasRect.maxX))
+        let clampedY = max(canvasRect.minY, min(viewPoint.y, canvasRect.maxY))
+        return CGPoint(x: clampedX, y: clampedY)
+    }
+}
+
+// MARK: - PKCanvasView Extension
+
 extension PKCanvasView {
     func setupWithMarginTransformer(_ transformer: DrawingCoordinateTransformer) {
         self.backgroundColor = .clear
@@ -169,17 +257,20 @@ extension PKCanvasView {
         self.drawingPolicy = .anyInput
         transformer.debugPrintTransformInfo()
     }
-    
+
     func applyMarginTransform(_ transformer: DrawingCoordinateTransformer) {
         let _ = transformer.getDisplayTransform()
     }
 }
 
+// MARK: - Debug Extension
+
 extension DrawingCoordinateTransformer {
     func debugPrintTransformInfo() {
         print("=== DrawingCoordinateTransformer Debug Info ===")
-        print("Canvas Bounds: \(canvasViewBounds)")
-        print("Scale Factor: \(scaleFactor)")
+        print("Canvas View Bounds: \(canvasViewBounds)")
+        print("Zoom Scale: \(zoomScale)")
+        print("Content Offset: \(contentOffset)")
         print("")
         print("Margin Settings:")
         print("  - Enabled: \(marginHelper.settings.isEnabled)")

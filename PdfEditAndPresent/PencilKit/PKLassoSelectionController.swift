@@ -9,7 +9,8 @@
 import UIKit
 import PencilKit
 
-/// Manages the PKLassoTool for selection operations on an existing PKCanvasView.
+/// Manages the PKLassoTool for selection operations on PKCanvasViews.
+/// Supports switching between multiple canvas views for dual-layer drawing systems.
 /// Provides customizable hooks and forwards PKCanvasViewDelegate to an external delegate if you already use one.
 public final class PKLassoSelectionController: NSObject, PKCanvasViewDelegate {
 
@@ -55,7 +56,7 @@ public final class PKLassoSelectionController: NSObject, PKCanvasViewDelegate {
     public init(canvasView: PKCanvasView) {
         self.canvasView = canvasView
         super.init()
-        // Keep existing delegate if present; we’ll forward to it.
+        // Keep existing delegate if present; we'll forward to it.
         if let existing = canvasView.delegate, existing !== self {
             self.externalDelegate = existing
         }
@@ -67,6 +68,41 @@ public final class PKLassoSelectionController: NSObject, PKCanvasViewDelegate {
         if let canvas = canvasView, let forward = externalDelegate, canvas.delegate === self {
             canvas.delegate = forward
         }
+    }
+
+    // MARK: - Public API: Target Canvas Switching
+
+    /// Switch the target canvas view (for dual-layer systems).
+    /// This allows the lasso controller to operate on different canvases.
+    public func setTargetCanvas(_ newCanvas: PKCanvasView?) {
+        guard let newCanvas = newCanvas, newCanvas !== canvasView else { return }
+
+        // Restore delegate on old canvas if needed
+        if let oldCanvas = canvasView, oldCanvas.delegate === self {
+            if let forward = externalDelegate {
+                oldCanvas.delegate = forward
+            }
+        }
+
+        // End lasso on old canvas if active
+        if isLassoActive {
+            endLassoAndRestorePreviousTool()
+        }
+
+        // Set up new canvas
+        canvasView = newCanvas
+
+        // Store existing delegate for forwarding
+        if let existing = newCanvas.delegate, existing !== self {
+            externalDelegate = existing
+        }
+
+        newCanvas.delegate = self
+    }
+
+    /// Get the current target canvas
+    public var targetCanvas: PKCanvasView? {
+        return canvasView
     }
 
     // MARK: - Public API: Lasso lifecycle

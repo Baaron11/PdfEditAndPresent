@@ -3,122 +3,131 @@ import PDFKit
 
 struct LabeledContinuousPDFPreview: UIViewRepresentable {
     let document: PDFDocument
-    let labels: [String]            // one per page in *this* (subset) document
+    let labels: [String]
     @Binding var currentPage: Int
-    // NEW: callbacks
-    var onRegisterZoomHandlers: ((_ zoomIn: @escaping ()->Void, _ zoomOut: @escaping ()->Void, _ fit: @escaping ()->Void)->Void)? = nil
+    // Register callbacks so the SwiftUI parent can drive zoom/fit
+    var onRegisterZoomHandlers: ((_ zoomIn: @escaping ()->Void,
+                                  _ zoomOut: @escaping ()->Void,
+                                  _ fit: @escaping ()->Void) -> Void)? = nil
+
+    func makeCoordinator() -> Coord { Coord(self) }
 
     func makeUIView(context: Context) -> PDFView {
         let v = PDFView()
-        v.autoScales = true
+        context.coordinator.pdfView = v
+
         v.displayMode = .singlePageContinuous
         v.displayDirection = .vertical
         v.backgroundColor = .secondarySystemBackground
+        v.autoScales = true
         v.document = document
-        v.delegate = context.coordinator
+        v.delegate  = context.coordinator
 
-        // Register zoom handlers
-        let zoomIn  = { [weak v] in guard let v else { return }
-            v.maxScaleFactor = max(v.maxScaleFactor, 8.0)
-            v.scaleFactor = min(v.scaleFactor * 1.15, v.maxScaleFactor)
+        // Register zoom handlers once the view is alive
+        onRegisterZoomHandlers?(
+            { [weak context] in context?.coordinator.zoomIn()  },
+            { [weak context] in context?.coordinator.zoomOut() },
+            { [weak context] in context?.coordinator.fit()     }
+        )
+
+        // Go to current page and FIT after first layout
+        if let p = document.page(at: max(0, min(currentPage-1, document.pageCount-1))) {
+            v.go(to: p)
         }
-        let zoomOut = { [weak v] in guard let v else { return }
-            v.minScaleFactor = v.scaleFactorForSizeToFit
-            v.scaleFactor = max(v.scaleFactor / 1.15, v.minScaleFactor)
+        DispatchQueue.main.async { context.coordinator.fit() }
+
+        // Reposition badges as the user scrolls/zooms
+        if let scroll = v.subviews.compactMap({ $0 as? UIScrollView }).first {
+            scroll.delegate = context.coordinator
         }
-        let fit = { [weak v] in guard let v else { return }
+
+        context.coordinator.updateBadges(labels: labels)
+        return v
+    }
+
+    func updateUIView(_ uiView: PDFView, context: Context) {
+        if uiView.document !== document {
+            uiView.document = document
+            // New doc: go to target page and fit again
+            if let p = document.page(at: max(0, min(currentPage-1, document.pageCount-1))) {
+                uiView.go(to: p)
+            }
+            DispatchQueue.main.async { context.coordinator.fit() }
+        } else if let p = document.page(at: max(0, min(currentPage-1, document.pageCount-1))) {
+            uiView.go(to: p)
+        }
+        context.coordinator.updateBadges(labels: labels)
+    }
+
+    final class Coord: NSObject, PDFViewDelegate, UIScrollViewDelegate {
+        let parent: LabeledContinuousPDFPreview
+        weak var pdfView: PDFView?
+
+        init(_ parent: LabeledContinuousPDFPreview) { self.parent = parent }
+
+        // MARK: Zoom helpers (used by overlay)
+        func fit() {
+            guard let v = pdfView else { return }
             v.autoScales = true
             v.minScaleFactor = v.scaleFactorForSizeToFit
             v.maxScaleFactor = max(v.maxScaleFactor, 8.0)
             v.scaleFactor = v.minScaleFactor
         }
-        onRegisterZoomHandlers?(zoomIn, zoomOut, fit)
-
-        if let p = document.page(at: max(0, min(currentPage-1, document.pageCount-1))) {
-            v.go(to: p)
+        func zoomIn() {
+            guard let v = pdfView else { return }
+            v.maxScaleFactor = max(v.maxScaleFactor, 8.0)
+            v.scaleFactor = min(v.scaleFactor * 1.15, v.maxScaleFactor)
         }
-        // Ensure fit after it lays out
-        DispatchQueue.main.async { fit() }
-
-        // Hook scroll/zoom to keep badges positioned
-        if let scroll = v.subviews.compactMap({ $0 as? UIScrollView }).first {
-            scroll.delegate = context.coordinator
+        func zoomOut() {
+            guard let v = pdfView else { return }
+            v.minScaleFactor = v.scaleFactorForSizeToFit
+            v.scaleFactor = max(v.scaleFactor / 1.15, v.minScaleFactor)
         }
 
-        context.coordinator.updateBadges(on: v, labels: labels)
-        return v
-    }
-
-    func updateUIView(_ uiView: PDFView, context: Context) {
-        if uiView.document !== document { uiView.document = document }
-        uiView.displayMode = .singlePageContinuous
-        uiView.displayDirection = .vertical
-        uiView.autoScales = true
-
-        if let p = uiView.document?.page(at: max(0, min(currentPage-1, (uiView.document?.pageCount ?? 1)-1))) {
-            uiView.go(to: p)
-        }
-        // Refits when bounds/content change
-        DispatchQueue.main.async {
-            uiView.minScaleFactor = uiView.scaleFactorForSizeToFit
-        }
-        context.coordinator.updateBadges(on: uiView, labels: labels)
-    }
-
-    func makeCoordinator() -> Coord { Coord(self) }
-
-    final class Coord: NSObject, PDFViewDelegate, UIScrollViewDelegate {
-        var parent: LabeledContinuousPDFPreview
-        init(_ p: LabeledContinuousPDFPreview) { self.parent = p }
-
-        // Reposition when current page changes:
+        // Keep currentPage in sync
         func pdfViewPageChanged(_ sender: Notification) {
             guard let v = sender.object as? PDFView,
                   let page = v.currentPage,
                   let idx = v.document?.index(for: page) else { return }
             parent.currentPage = idx + 1
-            updateBadges(on: v, labels: parent.labels)
+            updateBadges(labels: parent.labels)
         }
 
-        // Reposition during scroll/zoom:
-        func scrollViewDidScroll(_ scrollView: UIScrollView) { updateFrom(scrollView) }
-        func scrollViewDidZoom(_ scrollView: UIScrollView)   { updateFrom(scrollView) }
-        private func updateFrom(_ scrollView: UIScrollView) {
-            guard let v = scrollView.superview as? PDFView else { return }
-            updateBadges(on: v, labels: parent.labels)
-        }
+        // Keep badges positioned while scrolling/zooming
+        func scrollViewDidScroll(_ scrollView: UIScrollView) { updateBadges(labels: parent.labels) }
+        func scrollViewDidZoom(_ scrollView: UIScrollView)   { updateBadges(labels: parent.labels) }
 
-        func updateBadges(on view: PDFView, labels: [String]) {
-            guard let docView = view.documentView, let doc = view.document else { return }
-            // Remove old
+        // Centered, large page badges that stick to each page
+        func updateBadges(labels: [String]) {
+            guard let v = pdfView,
+                  let docView = v.documentView,
+                  let doc = v.document else { return }
+
             docView.subviews.filter { $0.tag == 4242 }.forEach { $0.removeFromSuperview() }
-
-            let badgeSize = CGSize(width: 180, height: 54) // ~3x
 
             for i in 0..<doc.pageCount {
                 guard let page = doc.page(at: i) else { continue }
-                let mediaBox = page.bounds(for: .mediaBox)
-                var rect = view.convert(mediaBox, from: page) // into PDFView coords
-                rect = docView.convert(rect, from: view)      // into documentView coords
+                // Page rect in documentView coordinates
+                let media = page.bounds(for: .mediaBox)
+                var r = v.convert(media, from: page)
+                r = docView.convert(r, from: v)
 
-                // Only add for pages currently (roughly) visible to avoid dozens of UILabels
-                if !docView.bounds.insetBy(dx: -400, dy: -400).intersects(rect) { continue }
+                // Skip far-off pages (perf)
+                if !docView.bounds.insetBy(dx: -400, dy: -400).intersects(r) { continue }
 
-                let center = CGPoint(x: rect.midX, y: rect.midY)
-                let frame = CGRect(x: center.x - badgeSize.width/2,
-                                   y: center.y - badgeSize.height/2,
-                                   width: badgeSize.width, height: badgeSize.height)
+                let size = CGSize(width: 180, height: 54)
+                let frame = CGRect(x: r.midX - size.width/2, y: r.midY - size.height/2, width: size.width, height: size.height)
 
-                let label = UILabel(frame: frame)
-                label.tag = 4242
-                label.textAlignment = .center
-                label.font = .systemFont(ofSize: 22, weight: .bold)
-                label.text = (i < labels.count) ? labels[i] : "Page \(i+1)"
-                label.textColor = .label
-                label.backgroundColor = UIColor.systemGray5.withAlphaComponent(0.75)
-                label.layer.cornerRadius = 12
-                label.clipsToBounds = true
-                docView.addSubview(label)
+                let lab = UILabel(frame: frame)
+                lab.tag = 4242
+                lab.textAlignment = .center
+                lab.font = .systemFont(ofSize: 22, weight: .bold)
+                lab.textColor = .label
+                lab.text = (i < labels.count) ? labels[i] : "Page \(i+1)"
+                lab.backgroundColor = UIColor.systemGray5.withAlphaComponent(0.75)
+                lab.layer.cornerRadius = 12
+                lab.clipsToBounds = true
+                docView.addSubview(lab)
             }
         }
     }

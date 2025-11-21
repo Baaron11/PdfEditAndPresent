@@ -144,7 +144,7 @@ struct PrintPreviewSheet: View {
                         .tint(.secondary)
                         .controlSize(.regular)
 
-                        // As PDF (file icon)
+                        // Save As PDF (folder icon)
                         Button {
                             buildFinalPDFDataForCurrentSettings { data in
                                 guard let data else { return }
@@ -155,7 +155,7 @@ struct PrintPreviewSheet: View {
                                 self.showExporter = true
                             }
                         } label: {
-                            Image(systemName: "doc")
+                            Image(systemName: "folder")
                                 .imageScale(.medium)
                                 .accessibilityLabel("Save as PDF")
                         }
@@ -188,6 +188,10 @@ struct PrintPreviewSheet: View {
             .onChange(of: pagesPerSheet) { _, _ in rebuildPreviewDocument() }
             .onChange(of: borderStyle) { _, _ in rebuildPreviewDocument() }
             .onChange(of: orientation) { _, _ in rebuildPreviewDocument() }
+            .onChange(of: previewDoc) { _, _ in
+                // Ensure correct fit the moment a new doc is composed
+                DispatchQueue.main.async { fitHandler?() }
+            }
             .sheet(isPresented: $showShareSheet) {
                 ShareSheet(items: shareItems)
             }
@@ -432,11 +436,28 @@ struct PrintPreviewSheet: View {
     private func shareSelection() {
         guard let base = buildSelectionData() else { return }
 
-        let proceed: (Data) -> Void = { ready in
-            // Prefer item source (more reliable than raw URL)
-            let src = PDFActivityItemSource(data: ready, filename: self.jobName.replacingOccurrences(of: "_optimized", with: ""))
-            self.shareItems = [src]
-            self.showShareSheet = true
+        let present: (URL) -> Void = { url in
+            DispatchQueue.main.async {
+                let act = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+                if let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene })
+                    .first(where: { $0.activationState == .foregroundActive }),
+                   let root = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController,
+                   root.presentedViewController == nil {
+                    if let pop = act.popoverPresentationController {
+                        pop.sourceView = root.view
+                        pop.sourceRect = CGRect(x: root.view.bounds.midX, y: 10, width: 1, height: 1)
+                        pop.permittedArrowDirections = []
+                    }
+                    root.present(act, animated: true)
+                }
+            }
+        }
+
+        let proceed: (Data) -> Void = { data in
+            let tmp = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString + ".pdf")
+            try? data.write(to: tmp)
+            present(tmp)
         }
 
         if qualityPreset == .original {

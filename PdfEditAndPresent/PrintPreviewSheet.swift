@@ -1,6 +1,7 @@
 import SwiftUI
 import PDFKit
 import Combine
+import UniformTypeIdentifiers
 
 struct PrintPreviewSheet: View {
     @ObservedObject var pdfManager: PDFManager
@@ -51,6 +52,15 @@ struct PrintPreviewSheet: View {
     // Share sheet state
     @State private var shareItems: [Any] = []
     @State private var showShareSheet = false
+
+    // Zoom handlers
+    @State private var zoomInHandler: (() -> Void)?
+    @State private var zoomOutHandler: (() -> Void)?
+    @State private var fitHandler: (() -> Void)?
+
+    // Export state
+    @State private var exportURL: URL?
+    @State private var showExporter = false
 
     private var pageCount: Int { pdfManager.pdfDocument?.pageCount ?? 0 }
     private var jobName: String { pdfManager.fileURL?.lastPathComponent ?? "Untitled.pdf" }
@@ -131,15 +141,26 @@ struct PrintPreviewSheet: View {
                                 .accessibilityLabel("Share")
                         }
                         .buttonStyle(.bordered)
+                        .tint(.secondary)
                         .controlSize(.regular)
 
-                        // As PDF
-                        Button("As PDF") {
-                            pdfManager.saveDocumentAs { success, _ in
-                                if success { dismiss() }
+                        // As PDF (file icon)
+                        Button {
+                            buildFinalPDFDataForCurrentSettings { data in
+                                guard let data else { return }
+                                let url = FileManager.default.temporaryDirectory
+                                    .appendingPathComponent((jobName as NSString).deletingPathExtension + "_output.pdf")
+                                try? data.write(to: url)
+                                self.exportURL = url
+                                self.showExporter = true
                             }
+                        } label: {
+                            Image(systemName: "doc")
+                                .imageScale(.medium)
+                                .accessibilityLabel("Save as PDF")
                         }
                         .buttonStyle(.bordered)
+                        .tint(.secondary)
                         .controlSize(.regular)
 
                         // Print
@@ -148,12 +169,12 @@ struct PrintPreviewSheet: View {
                         }
                         .disabled(pdfManager.pdfDocument == nil
                                   || (choice == .custom && customPages.isEmpty))
-                        .buttonStyle(.bordered)     // <- was .borderedProminent
+                        .buttonStyle(.bordered)
+                        .tint(.secondary)
                         .controlSize(.regular)
                     }
                 }
             }
-            .tint(.secondary)  // gives bordered buttons a grey accent rather than blue
             .onAppear {
                 currentPage = max(1, pdfManager.editorCurrentPage)
                 applyQualityPreset(qualityPreset)
@@ -169,6 +190,14 @@ struct PrintPreviewSheet: View {
             .onChange(of: orientation) { _, _ in rebuildPreviewDocument() }
             .sheet(isPresented: $showShareSheet) {
                 ShareSheet(items: shareItems)
+            }
+            .fileExporter(
+                isPresented: $showExporter,
+                document: (exportURL != nil ? ExportablePDF(url: exportURL!) : nil),
+                contentType: .pdf,
+                defaultFilename: (jobName as NSString).deletingPathExtension + "_output"
+            ) { result in
+                // Optional: handle success/failure; don't dismiss automatically
             }
         }
     }
@@ -271,11 +300,30 @@ struct PrintPreviewSheet: View {
     }
 
     private var preview: some View {
-        ZStack {
+        ZStack(alignment: .topTrailing) {
             if let doc = previewDoc {
-                LabeledContinuousPDFPreview(document: doc, labels: previewLabels, currentPage: $displayPage)
-                    .background(Color(.secondarySystemBackground))
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                LabeledContinuousPDFPreview(
+                    document: doc,
+                    labels: previewLabels,
+                    currentPage: $displayPage,
+                    onRegisterZoomHandlers: { zin, zout, fit in
+                        self.zoomInHandler = zin
+                        self.zoomOutHandler = zout
+                        self.fitHandler = fit
+                    }
+                )
+                .background(Color(.secondarySystemBackground))
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                // translucent zoom controls
+                HStack(spacing: 8) {
+                    Button { fitHandler?() }    label: { Image(systemName: "rectangle.arrowtriangle.2.outward") }
+                    Button { zoomOutHandler?() } label: { Image(systemName: "minus.magnifyingglass") }
+                    Button { zoomInHandler?() }  label: { Image(systemName: "plus.magnifyingglass") }
+                }
+                .padding(8)
+                .background(.ultraThinMaterial, in: Capsule())
+                .padding(10)
             } else {
                 ContentUnavailableView("No Pages Selected", systemImage: "doc", description: Text("Choose pages to print."))
             }
@@ -311,6 +359,37 @@ struct PrintPreviewSheet: View {
         }
         .padding(.horizontal)
         .padding(.bottom, 6)
+    }
+
+    // MARK: - Build Final PDF for Export
+
+    private func buildFinalPDFDataForCurrentSettings(_ completion: @escaping (Data?) -> Void) {
+        guard let subset = buildSubsetDocument() else { completion(nil); return }
+
+        // Compose with layout/orientation so the file matches preview/print
+        let composed = PreviewComposer.compose(
+            subset: subset,
+            paperSize: paperSize,
+            pagesPerSheet: pagesPerSheet,
+            border: borderStyle,
+            orientation: orientation
+        ) ?? subset
+
+        guard let baseData = composed.dataRepresentation() else { completion(nil); return }
+
+        if qualityPreset == .original {
+            completion(baseData)
+        } else {
+            let opts = currentOptimizeOptions()
+            pdfManager.optimizePDFData(baseData, options: opts) { result in
+                DispatchQueue.main.async {
+                    switch result {
+                    case .success(let optimized): completion(optimized)
+                    case .failure: completion(baseData)
+                    }
+                }
+            }
+        }
     }
 
     // MARK: - Preview Document Builder
@@ -620,6 +699,18 @@ struct SinglePagePDFPreview: UIViewRepresentable {
         uiView.displayMode = .singlePage
         uiView.displayDirection = .horizontal
         uiView.autoScales = true
+    }
+}
+
+// MARK: - Exportable PDF Document
+
+struct ExportablePDF: FileDocument {
+    static var readableContentTypes: [UTType] { [.pdf] }
+    var url: URL
+    init(url: URL) { self.url = url }
+    init(configuration: ReadConfiguration) throws { self.url = FileManager.default.temporaryDirectory }
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        return try FileWrapper(url: url, options: .immediate)
     }
 }
 

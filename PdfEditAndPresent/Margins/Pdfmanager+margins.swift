@@ -2,24 +2,13 @@ import Foundation
 import PDFKit
 import PencilKit
 
-// MARK: - PDFManager Extension for Margin and Dual-Layer Drawing Management
+// MARK: - PDFManager Extension for Dual-Layer Drawing Management
 
 extension PDFManager {
 
-    // MARK: - Margin Settings Storage Keys
-    private static var marginSettingsKey: UInt8 = 0
+    // MARK: - Drawing Storage Keys
     private static var pdfAnchoredDrawingsKey: UInt8 = 1
     private static var marginDrawingsKey: UInt8 = 2
-
-    /// Margin settings array - one entry per page
-    var marginSettings: [MarginSettings] {
-        get {
-            return objc_getAssociatedObject(self, &PDFManager.marginSettingsKey) as? [MarginSettings] ?? []
-        }
-        set {
-            objc_setAssociatedObject(self, &PDFManager.marginSettingsKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        }
-    }
 
     /// PDF-anchored drawings (normalized to PDF space) - one entry per page
     var pdfAnchoredDrawings: [Int: PKDrawing] {
@@ -39,78 +28,6 @@ extension PDFManager {
         set {
             objc_setAssociatedObject(self, &PDFManager.marginDrawingsKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
         }
-    }
-
-    // MARK: - Initialization
-
-    /// Initialize margin settings and drawings when PDF is loaded
-    func initializeMarginSettings() {
-        marginSettings = Array(repeating: MarginSettings(), count: pageCount)
-        pdfAnchoredDrawings = [:]
-        marginDrawings = [:]
-        print("Margin settings and dual-layer drawings initialized for \(pageCount) pages")
-    }
-
-    // MARK: - Margin Settings Access
-
-    /// Get margin settings for a specific page
-    func getMarginSettings(for pageIndex: Int) -> MarginSettings {
-        guard pageIndex >= 0 && pageIndex < marginSettings.count else {
-            print("Invalid page index for margin settings: \(pageIndex)")
-            return MarginSettings()
-        }
-        return marginSettings[pageIndex]
-    }
-
-    /// Update margin settings for a specific page
-    func updateMarginSettings(for pageIndex: Int, settings: MarginSettings) {
-        guard pageIndex >= 0 && pageIndex < marginSettings.count else {
-            print("Cannot update margin settings: invalid page index \(pageIndex)")
-            return
-        }
-
-        marginSettings[pageIndex] = settings
-        print("Updated margin settings for page \(pageIndex + 1)")
-        print("   - Enabled: \(settings.isEnabled)")
-        print("   - Anchor: \(settings.anchorPosition.rawValue)")
-        print("   - Scale: \(Int(settings.pdfScale * 100))%")
-
-        // Post notification for observers
-        NotificationCenter.default.post(
-            name: .marginSettingsDidChange,
-            object: self,
-            userInfo: ["pageIndex": pageIndex, "settings": settings]
-        )
-    }
-
-    /// Apply margin settings to all pages at once
-    func applyMarginSettingsToAllPages(_ settings: MarginSettings) {
-        marginSettings = Array(repeating: settings, count: pageCount)
-        print("Applied margin settings to all \(pageCount) pages")
-        print("   - Enabled: \(settings.isEnabled)")
-        print("   - Anchor: \(settings.anchorPosition.rawValue)")
-        print("   - Scale: \(Int(settings.pdfScale * 100))%")
-
-        NotificationCenter.default.post(
-            name: .marginSettingsDidChange,
-            object: self,
-            userInfo: ["allPages": true, "settings": settings]
-        )
-    }
-
-    /// Apply margin settings to current page only
-    func applyMarginSettingsToCurrentPage(_ settings: MarginSettings) {
-        updateMarginSettings(for: currentPageIndex, settings: settings)
-    }
-
-    /// Apply margin settings with change tracking
-    func applyMarginSettingsToCurrentPageWithTracking(_ settings: MarginSettings) {
-        applyMarginSettingsToCurrentPage(settings)
-    }
-
-    /// Apply margin settings to all pages with change tracking
-    func applyMarginSettingsToAllPagesWithTracking(_ settings: MarginSettings) {
-        applyMarginSettingsToAllPages(settings)
     }
 
     // MARK: - Dual-Layer Drawing Access
@@ -178,24 +95,7 @@ extension PDFManager {
                (marginDrawing != nil && !marginDrawing!.strokes.isEmpty)
     }
 
-    // MARK: - Helpers
-
-    /// Get helper for calculating margin/PDF positioning
-    func getMarginCanvasHelper(for pageIndex: Int) -> MarginCanvasHelper {
-        let settings = getMarginSettings(for: pageIndex)
-        let pdfSize = getPageSize(for: pageIndex)
-        return MarginCanvasHelper(settings: settings, originalPDFSize: pdfSize, canvasSize: pdfSize)
-    }
-
-    /// Check if margins are enabled for current page
-    var hasMarginEnabled: Bool {
-        getMarginSettings(for: currentPageIndex).isEnabled
-    }
-
-    /// Get current page's margin settings
-    var currentPageMarginSettings: MarginSettings {
-        getMarginSettings(for: currentPageIndex)
-    }
+    // MARK: - Current Page Helpers
 
     /// Get current page's PDF-anchored drawing
     var currentPagePdfAnchoredDrawing: PKDrawing {
@@ -211,6 +111,5 @@ extension PDFManager {
 // MARK: - Notification Names
 
 extension Notification.Name {
-    static let marginSettingsDidChange = Notification.Name("marginSettingsDidChange")
     static let drawingsDidChange = Notification.Name("drawingsDidChange")
 }

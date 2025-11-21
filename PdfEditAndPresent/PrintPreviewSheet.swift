@@ -193,7 +193,7 @@ struct PrintPreviewSheet: View {
                 DispatchQueue.main.async { fitHandler?() }
             }
             .sheet(isPresented: $showShareSheet) {
-                ShareSheet(items: shareItems)
+                ShareSheet(activityItems: shareItems)
             }
             .fileExporter(
                 isPresented: $showExporter,
@@ -311,11 +311,13 @@ struct PrintPreviewSheet: View {
                     labels: previewLabels,
                     currentPage: $displayPage,
                     onRegisterZoomHandlers: { zin, zout, fit in
-                        // Defer state writes to next runloop; avoids "Modifying state during view update"
+                        // Defer to next runloop to avoid "Modifying state during view update"
                         DispatchQueue.main.async {
                             self.zoomInHandler = zin
                             self.zoomOutHandler = zout
                             self.fitHandler = fit
+                            // ensure initial fit the first time handlers arrive
+                            self.fitHandler?()
                         }
                     }
                 )
@@ -439,28 +441,14 @@ struct PrintPreviewSheet: View {
     private func shareSelection() {
         guard let base = buildSelectionData() else { return }
 
-        let present: (URL) -> Void = { url in
-            DispatchQueue.main.async {
-                let act = UIActivityViewController(activityItems: [url], applicationActivities: nil)
-                if let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene })
-                    .first(where: { $0.activationState == .foregroundActive }),
-                   let root = scene.windows.first(where: { $0.isKeyWindow })?.rootViewController,
-                   root.presentedViewController == nil {
-                    if let pop = act.popoverPresentationController {
-                        pop.sourceView = root.view
-                        pop.sourceRect = CGRect(x: root.view.bounds.midX, y: 10, width: 1, height: 1)
-                        pop.permittedArrowDirections = []
-                    }
-                    root.present(act, animated: true)
-                }
-            }
-        }
-
         let proceed: (Data) -> Void = { data in
-            let tmp = FileManager.default.temporaryDirectory
-                .appendingPathComponent(UUID().uuidString + ".pdf")
+            // Write synchronously, then present .sheet with the ready URL/items
+            let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".pdf")
             try? data.write(to: tmp)
-            present(tmp)
+
+            // Set items first, THEN show sheet (fixes "empty first tap")
+            self.shareItems = [tmp]
+            self.showShareSheet = true
         }
 
         if qualityPreset == .original {

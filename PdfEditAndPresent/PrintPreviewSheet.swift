@@ -85,7 +85,6 @@ struct PrintPreviewSheet: View {
                     // LEFT: Controls
                     controls
                         .frame(width: max(320, geo.size.width * 0.40))
-                        .padding(.leading)
 
                     // RIGHT: Single-page preview + pager
                     VStack(spacing: 8) {
@@ -141,7 +140,7 @@ struct PrintPreviewSheet: View {
                                 .accessibilityLabel("Share")
                         }
                         .buttonStyle(.bordered)
-                        .tint(.secondary)
+                        .tint(.blue)
                         .controlSize(.regular)
 
                         // Save As PDF (folder icon)
@@ -160,7 +159,7 @@ struct PrintPreviewSheet: View {
                                 .accessibilityLabel("Save as PDF")
                         }
                         .buttonStyle(.bordered)
-                        .tint(.secondary)
+                        .tint(.blue)
                         .controlSize(.regular)
 
                         // Print
@@ -170,7 +169,7 @@ struct PrintPreviewSheet: View {
                         .disabled(pdfManager.pdfDocument == nil
                                   || (choice == .custom && customPages.isEmpty))
                         .buttonStyle(.bordered)
-                        .tint(.secondary)
+                        .tint(.blue)
                         .controlSize(.regular)
                     }
                 }
@@ -241,6 +240,7 @@ struct PrintPreviewSheet: View {
             Section("Options") {
                 Stepper("Copies: \(copies)", value: $copies, in: 1...99)
                 Toggle("Color", isOn: $color)
+                    .tint(.blue)
                 Picker("Double Sided", selection: $duplex) {
                     Text("No").tag(PDFManager.DuplexMode.none)
                     Text("Short Edge").tag(PDFManager.DuplexMode.shortEdge)
@@ -304,7 +304,7 @@ struct PrintPreviewSheet: View {
     }
 
     private var preview: some View {
-        ZStack(alignment: .topTrailing) {
+        ZStack(alignment: .top) {
             if let doc = previewDoc {
                 LabeledContinuousPDFPreview(
                     document: doc,
@@ -322,7 +322,7 @@ struct PrintPreviewSheet: View {
                 .background(Color(.secondarySystemBackground))
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
-                // translucent zoom controls
+                // translucent zoom controls (centered)
                 HStack(spacing: 8) {
                     Button { fitHandler?() }    label: { Image(systemName: "rectangle.arrowtriangle.2.outward") }
                     Button { zoomOutHandler?() } label: { Image(systemName: "minus.magnifyingglass") }
@@ -330,7 +330,8 @@ struct PrintPreviewSheet: View {
                 }
                 .padding(8)
                 .background(.ultraThinMaterial, in: Capsule())
-                .padding(10)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 10)
             } else {
                 ContentUnavailableView("No Pages Selected", systemImage: "doc", description: Text("Choose pages to print."))
             }

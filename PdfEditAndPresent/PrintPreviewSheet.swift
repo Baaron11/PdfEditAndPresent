@@ -304,7 +304,7 @@ struct PrintPreviewSheet: View {
     }
 
     private var preview: some View {
-        ZStack(alignment: .top) {
+        ZStack {
             if let doc = previewDoc {
                 LabeledContinuousPDFPreview(
                     document: doc,
@@ -321,19 +321,20 @@ struct PrintPreviewSheet: View {
                 )
                 .background(Color(.secondarySystemBackground))
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-
-                // translucent zoom controls (centered)
+            } else {
+                ContentUnavailableView("No Pages Selected", systemImage: "doc", description: Text("Choose pages to print."))
+            }
+        }
+        .overlay(alignment: .top) {
+            if previewDoc != nil {
                 HStack(spacing: 8) {
-                    Button { fitHandler?() }    label: { Image(systemName: "rectangle.arrowtriangle.2.outward") }
                     Button { zoomOutHandler?() } label: { Image(systemName: "minus.magnifyingglass") }
-                    Button { zoomInHandler?() }  label: { Image(systemName: "plus.magnifyingglass") }
+                    Button { fitHandler?() } label: { Text("Fit") }
+                    Button { zoomInHandler?() } label: { Image(systemName: "plus.magnifyingglass") }
                 }
                 .padding(8)
                 .background(.ultraThinMaterial, in: Capsule())
-                .frame(maxWidth: .infinity)
                 .padding(.top, 10)
-            } else {
-                ContentUnavailableView("No Pages Selected", systemImage: "doc", description: Text("Choose pages to print."))
             }
         }
     }

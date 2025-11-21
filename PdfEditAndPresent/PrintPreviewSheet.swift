@@ -222,7 +222,12 @@ struct PrintPreviewSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
+        bodyContent
+    }
+
+    @ViewBuilder
+    private var bodyContent: some View {
+        let navStack = NavigationStack {
             mainLayout
         }
         .navigationTitle("Print Preview")
@@ -232,29 +237,37 @@ struct PrintPreviewSheet: View {
             principalBar()
             trailingBar()
         }
-        .onAppear {
-            currentPage = max(1, pdfManager.editorCurrentPage)
-            applyQualityPreset(qualityPreset)
-            rebuildPreviewDocument()
-            pdfManager.restoreLastPrinterIfAvailable()
-        }
-        .onChange(of: choice) { _, _ in rebuildPreviewDocument() }
-        .onChange(of: customPages) { _, _ in if choice == .custom { rebuildPreviewDocument() } }
-        .onChange(of: pdfManager.editorCurrentPage) { _, _ in if choice == .current { rebuildPreviewDocument() } }
-        .onChange(of: paperSize) { _, _ in rebuildPreviewDocument() }
-        .onChange(of: pagesPerSheet) { _, _ in rebuildPreviewDocument() }
-        .onChange(of: borderStyle) { _, _ in rebuildPreviewDocument() }
-        .onChange(of: orientation) { _, _ in rebuildPreviewDocument() }
-        .onChange(of: previewDoc) { _, _ in DispatchQueue.main.async { fitHandler?() } }
-        .sheet(isPresented: $showShareSheet) {
-            ShareSheet(activityItems: shareItems)
-        }
-        .fileExporter(
-            isPresented: $showExporter,
-            document: (exportURL != nil ? ExportablePDF(url: exportURL!) : nil),
-            contentType: .pdf,
-            defaultFilename: (jobName as NSString).deletingPathExtension + "_output"
-        ) { _ in }
+
+        let withAppear = navStack
+            .onAppear {
+                currentPage = max(1, pdfManager.editorCurrentPage)
+                applyQualityPreset(qualityPreset)
+                rebuildPreviewDocument()
+                pdfManager.restoreLastPrinterIfAvailable()
+            }
+
+        let withChanges = withAppear
+            .onChange(of: choice) { _, _ in rebuildPreviewDocument() }
+            .onChange(of: customPages) { _, _ in if choice == .custom { rebuildPreviewDocument() } }
+            .onChange(of: pdfManager.editorCurrentPage) { _, _ in if choice == .current { rebuildPreviewDocument() } }
+            .onChange(of: paperSize) { _, _ in rebuildPreviewDocument() }
+
+        let withMoreChanges = withChanges
+            .onChange(of: pagesPerSheet) { _, _ in rebuildPreviewDocument() }
+            .onChange(of: borderStyle) { _, _ in rebuildPreviewDocument() }
+            .onChange(of: orientation) { _, _ in rebuildPreviewDocument() }
+            .onChange(of: previewDoc) { _, _ in DispatchQueue.main.async { fitHandler?() } }
+
+        withMoreChanges
+            .sheet(isPresented: $showShareSheet) {
+                ShareSheet(activityItems: shareItems)
+            }
+            .fileExporter(
+                isPresented: $showExporter,
+                document: (exportURL != nil ? ExportablePDF(url: exportURL!) : nil),
+                contentType: .pdf,
+                defaultFilename: (jobName as NSString).deletingPathExtension + "_output"
+            ) { _ in }
     }
 
     private var preview: some View {

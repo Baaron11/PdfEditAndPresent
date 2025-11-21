@@ -33,7 +33,16 @@ final class UnifiedBoardCanvasController: UIViewController {
     
     // Gesture recognizers
     private var tapGestureRecognizer: UITapGestureRecognizer?
-    
+
+    // Observers for form focus (TextField/TextView)
+    private var interactionObservers: [NSObjectProtocol] = []
+
+    // Optional: keep a reference if you want to remove/replace later
+    private var panGestureRecognizer: UIPanGestureRecognizer?
+
+    // Lasso controller for PencilKit selection
+    private var lassoController: PKLassoSelectionController?
+
     // Callbacks
     var onModeChanged: ((CanvasMode) -> Void)?
     var onPaperKitItemAdded: (() -> Void)?
@@ -57,7 +66,11 @@ final class UnifiedBoardCanvasController: UIViewController {
         super.viewDidAppear(animated)
         print("📱 UnifiedBoardCanvasController viewDidAppear - actual bounds: \(view.bounds)")
     }
-    
+
+    deinit {
+        for o in interactionObservers { NotificationCenter.default.removeObserver(o) }
+    }
+
     // MARK: - Private Setup
     
     private func setupContainerView() {
@@ -132,7 +145,8 @@ final class UnifiedBoardCanvasController: UIViewController {
 
         containerView.sendSubviewToBack(controller.view)
         setupPaperKitDropInteraction(on: controller.view)
-        
+        installPaperKitInteractionObservers()
+
         print("✅ PaperKit setup complete")
     }
     
@@ -164,10 +178,13 @@ final class UnifiedBoardCanvasController: UIViewController {
         
         pencilKitCanvas = canvas
         pencilKitToolPicker = toolPicker
-        
+
+        // Initialize lasso controller for selection operations
+        lassoController = PKLassoSelectionController(canvasView: canvas)
+
         // Set initial tool
         canvas.tool = PKInkingTool(.pen, color: .black, width: 2)
-        
+
         print("✅ PencilKit setup complete")
     }
     
@@ -175,6 +192,11 @@ final class UnifiedBoardCanvasController: UIViewController {
     func setCanvasMode(_ mode: CanvasMode) {
         self.canvasMode = mode
         onModeChanged?(mode)
+        if mode == .selecting {
+            lassoController?.beginLasso()
+        } else {
+            lassoController?.endLassoAndRestorePreviousTool()
+        }
     }
     
     /// Auto-switch to select mode (called after PaperKit item added)
@@ -203,10 +225,18 @@ final class UnifiedBoardCanvasController: UIViewController {
             modeInterceptor.bottomAnchor.constraint(equalTo: containerView.bottomAnchor)
         ])
         
-        let tap = UITapGestureRecognizer(target: self, action: #selector(handleModeSwitch))
+        let tap = UITapGestureRecognizer(target: self, action: #selector(handlePaperKitTap(_:)))
+        tap.cancelsTouchesInView = false
+        tap.delegate = self
         modeInterceptor.addGestureRecognizer(tap)
         tapGestureRecognizer = tap
-        
+
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePaperKitPan(_:)))
+        pan.cancelsTouchesInView = false
+        pan.delegate = self
+        modeInterceptor.addGestureRecognizer(pan)
+        panGestureRecognizer = pan
+
         print("✅ Mode interceptor setup complete")
         updateGestureRouting()
     }
@@ -239,34 +269,92 @@ final class UnifiedBoardCanvasController: UIViewController {
     // MARK: - Gesture Routing
     
     private func updateGestureRouting() {
-           // Form placement takes priority
-         
-           
-           switch canvasMode {
-           case .drawing:
-               pencilKitCanvas?.isUserInteractionEnabled = true
-               paperKitView?.isUserInteractionEnabled = false
-               modeInterceptor.isUserInteractionEnabled = false
-               print("🎯 Drawing mode: PencilKit enabled")
-               
-           case .selecting:
-               pencilKitCanvas?.isUserInteractionEnabled = false
-               paperKitView?.isUserInteractionEnabled = true
-               modeInterceptor.isUserInteractionEnabled = true
-               print("🎯 Select mode: PaperKit enabled")
-               
-           case .idle:
-               pencilKitCanvas?.isUserInteractionEnabled = false
-               paperKitView?.isUserInteractionEnabled = false
-               modeInterceptor.isUserInteractionEnabled = false
-               print("🎯 Idle mode: All disabled")
-           }
-       }
-    
-    @objc private func handleModeSwitch(_ gesture: UITapGestureRecognizer) {
-        print("📍 Mode switch gesture detected")
+        switch canvasMode {
+        case .drawing:
+            pencilKitCanvas?.isUserInteractionEnabled = true
+            paperKitView?.isUserInteractionEnabled   = false
+            // IMPORTANT: keep the interceptor enabled so it can *observe* and flip to select
+            modeInterceptor.isUserInteractionEnabled = true
+            print("🎯 Drawing mode: PencilKit enabled, interceptor watching")
+
+        case .selecting:
+            pencilKitCanvas?.isUserInteractionEnabled = false
+            paperKitView?.isUserInteractionEnabled   = true
+            modeInterceptor.isUserInteractionEnabled = true
+            print("🎯 Select mode: PaperKit enabled")
+
+        case .idle:
+            pencilKitCanvas?.isUserInteractionEnabled = false
+            paperKitView?.isUserInteractionEnabled   = false
+            modeInterceptor.isUserInteractionEnabled = false
+            print("🎯 Idle mode: All disabled")
+        }
     }
     
+    // MARK: - PaperKit Interaction Auto-Switch
+
+    private func installPaperKitInteractionObservers() {
+        guard let paperView = paperKitView else { return }
+
+        // Flip to select whenever a text input inside PaperKit begins editing
+        let tfObs = NotificationCenter.default.addObserver(
+            forName: UITextField.textDidBeginEditingNotification,
+            object: nil, queue: .main
+        ) { [weak self] note in
+            self?.maybeSwitchToSelectIfDescendant(of: paperView, editingObject: note.object)
+        }
+        let tvObs = NotificationCenter.default.addObserver(
+            forName: UITextView.textDidBeginEditingNotification,
+            object: nil, queue: .main
+        ) { [weak self] note in
+            self?.maybeSwitchToSelectIfDescendant(of: paperView, editingObject: note.object)
+        }
+        interactionObservers.append(contentsOf: [tfObs, tvObs])
+    }
+
+    private func maybeSwitchToSelectIfDescendant(of root: UIView, editingObject: Any?) {
+        guard canvasMode == .drawing else { return }
+        guard let v = editingObject as? UIView else { return }
+        if v.isDescendant(of: root) {
+            autoSwitchToSelectMode()
+        }
+    }
+
+    @objc private func handlePaperKitTap(_ gr: UITapGestureRecognizer) {
+        guard canvasMode == .drawing, gr.state == .ended else { return }
+        guard let paperView = paperKitView else { return }
+        let p = gr.location(in: paperView)
+        let hit = paperView.hitTest(p, with: nil)
+        if isInteractiveElement(hit) {
+            autoSwitchToSelectMode()
+        }
+    }
+
+    @objc private func handlePaperKitPan(_ gr: UIPanGestureRecognizer) {
+        guard canvasMode == .drawing else { return }
+        guard let paperView = paperKitView else { return }
+        let p = gr.location(in: paperView)
+        let hit = paperView.hitTest(p, with: nil)
+        // Flip early when a drag starts on something interactive
+        if gr.state == .began, isInteractiveElement(hit) {
+            autoSwitchToSelectMode()
+        }
+    }
+
+    // Heuristics for "interactive element" inside PaperKit
+    private func isInteractiveElement(_ v: UIView?) -> Bool {
+        guard let v = v else { return false }
+        if v is UIControl || v is UITextField || v is UITextView { return true }
+        if let gestures = v.gestureRecognizers, !gestures.isEmpty { return true }
+        let traits = v.accessibilityTraits
+        if traits.contains(.button) || traits.contains(.image) || traits.contains(.selected) { return true }
+        // Class-name hints for custom PaperKit views
+        let name = NSStringFromClass(type(of: v))
+        if name.contains("Paper") || name.contains("Markup") || name.contains("Form")
+            || name.contains("Shape") || name.contains("Annotation") { return true }
+        return false
+    }
+
     // MARK: - Alignment Transform
     
     private func applyAlignmentTransform() {
@@ -308,12 +396,26 @@ extension UnifiedBoardCanvasController: UIDropInteractionDelegate {
     func dropInteraction(_ interaction: UIDropInteraction, canHandle session: UIDropSession) -> Bool {
         return canvasMode == .selecting && session.hasItemsConforming(toTypeIdentifiers: ["public.json"])
     }
-    
+
     func dropInteraction(_ interaction: UIDropInteraction, sessionDidUpdate session: UIDropSession) -> UIDropProposal {
         UIDropProposal(operation: .copy)
     }
-    
+
     func dropInteraction(_ interaction: UIDropInteraction, performDrop session: UIDropSession) {
         autoSwitchToSelectMode()
+    }
+}
+
+// MARK: - UIGestureRecognizerDelegate
+extension UnifiedBoardCanvasController: UIGestureRecognizerDelegate {
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        return true
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldReceive touch: UITouch) -> Bool {
+        // We only observe; don't cancel PK touches.
+        return true
     }
 }

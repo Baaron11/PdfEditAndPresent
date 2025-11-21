@@ -65,15 +65,16 @@ struct PrintPreviewSheet: View {
     private var pageCount: Int { pdfManager.pdfDocument?.pageCount ?? 0 }
     private var jobName: String { pdfManager.fileURL?.lastPathComponent ?? "Untitled.pdf" }
 
-    private var previewLabels: [String] {
+    private var previewLabels: [String] { makePreviewLabels() }
+
+    private func makePreviewLabels() -> [String] {
         switch choice {
         case .all:
-            // Show 1..N (sheet pages after composition)
-            return (1...(previewDoc?.pageCount ?? 1)).map { "Page \($0)" }
+            let count = max(1, previewDoc?.pageCount ?? 0)
+            return (1...count).map { "Page \($0)" }
         case .current:
             return ["Page \(pdfManager.editorCurrentPage)"]
         case .custom:
-            // Use original page numbers for user clarity
             return customPages.map { "Page \($0)" }
         }
     }
@@ -311,18 +312,17 @@ struct PrintPreviewSheet: View {
                     labels: previewLabels,
                     currentPage: $displayPage,
                     onRegisterZoomHandlers: { zin, zout, fit in
-                        // Defer to next runloop to avoid "Modifying state during view update"
                         DispatchQueue.main.async {
                             self.zoomInHandler = zin
                             self.zoomOutHandler = zout
-                            self.fitHandler = fit
-                            // ensure initial fit the first time handlers arrive
-                            self.fitHandler?()
+                            self.fitHandler     = fit
+                            self.fitHandler?()  // initial fit on first mount
                         }
                     }
                 )
                 .background(Color(.secondarySystemBackground))
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .onAppear { DispatchQueue.main.async { fitHandler?() } }
 
                 // translucent zoom controls
                 HStack(spacing: 8) {

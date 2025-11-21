@@ -311,9 +311,12 @@ struct PrintPreviewSheet: View {
                     labels: previewLabels,
                     currentPage: $displayPage,
                     onRegisterZoomHandlers: { zin, zout, fit in
-                        self.zoomInHandler = zin
-                        self.zoomOutHandler = zout
-                        self.fitHandler = fit
+                        // Defer state writes to next runloop; avoids "Modifying state during view update"
+                        DispatchQueue.main.async {
+                            self.zoomInHandler = zin
+                            self.zoomOutHandler = zout
+                            self.fitHandler = fit
+                        }
                     }
                 )
                 .background(Color(.secondarySystemBackground))

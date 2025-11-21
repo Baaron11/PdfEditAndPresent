@@ -25,9 +25,9 @@ struct LabeledContinuousPDFPreview: UIViewRepresentable {
 
         // Register zoom handlers once the view is alive
         onRegisterZoomHandlers?(
-            { [weak context] in context?.coordinator.zoomIn()  },
-            { [weak context] in context?.coordinator.zoomOut() },
-            { [weak context] in context?.coordinator.fit()     }
+            { [weak coord = context.coordinator] in coord?.zoomIn()  },
+            { [weak coord = context.coordinator] in coord?.zoomOut() },
+            { [weak coord = context.coordinator] in coord?.fit()     }
         )
 
         // Go to current page and FIT after first layout

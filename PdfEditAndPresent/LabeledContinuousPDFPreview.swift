@@ -5,6 +5,8 @@ struct LabeledContinuousPDFPreview: UIViewRepresentable {
     let document: PDFDocument
     let labels: [String]            // one per page in *this* (subset) document
     @Binding var currentPage: Int
+    // NEW: callbacks
+    var onRegisterZoomHandlers: ((_ zoomIn: @escaping ()->Void, _ zoomOut: @escaping ()->Void, _ fit: @escaping ()->Void)->Void)? = nil
 
     func makeUIView(context: Context) -> PDFView {
         let v = PDFView()
@@ -15,9 +17,28 @@ struct LabeledContinuousPDFPreview: UIViewRepresentable {
         v.document = document
         v.delegate = context.coordinator
 
-        if let page = document.page(at: max(0, min(currentPage-1, document.pageCount-1))) {
-            v.go(to: page)
+        // Register zoom handlers
+        let zoomIn  = { [weak v] in guard let v else { return }
+            v.maxScaleFactor = max(v.maxScaleFactor, 8.0)
+            v.scaleFactor = min(v.scaleFactor * 1.15, v.maxScaleFactor)
         }
+        let zoomOut = { [weak v] in guard let v else { return }
+            v.minScaleFactor = v.scaleFactorForSizeToFit
+            v.scaleFactor = max(v.scaleFactor / 1.15, v.minScaleFactor)
+        }
+        let fit = { [weak v] in guard let v else { return }
+            v.autoScales = true
+            v.minScaleFactor = v.scaleFactorForSizeToFit
+            v.maxScaleFactor = max(v.maxScaleFactor, 8.0)
+            v.scaleFactor = v.minScaleFactor
+        }
+        onRegisterZoomHandlers?(zoomIn, zoomOut, fit)
+
+        if let p = document.page(at: max(0, min(currentPage-1, document.pageCount-1))) {
+            v.go(to: p)
+        }
+        // Ensure fit after it lays out
+        DispatchQueue.main.async { fit() }
 
         // Hook scroll/zoom to keep badges positioned
         if let scroll = v.subviews.compactMap({ $0 as? UIScrollView }).first {
@@ -36,6 +57,10 @@ struct LabeledContinuousPDFPreview: UIViewRepresentable {
 
         if let p = uiView.document?.page(at: max(0, min(currentPage-1, (uiView.document?.pageCount ?? 1)-1))) {
             uiView.go(to: p)
+        }
+        // Refits when bounds/content change
+        DispatchQueue.main.async {
+            uiView.minScaleFactor = uiView.scaleFactorForSizeToFit
         }
         context.coordinator.updateBadges(on: uiView, labels: labels)
     }
@@ -68,8 +93,7 @@ struct LabeledContinuousPDFPreview: UIViewRepresentable {
             // Remove old
             docView.subviews.filter { $0.tag == 4242 }.forEach { $0.removeFromSuperview() }
 
-            let pad: CGFloat = 6
-            let badgeSize = CGSize(width: 76, height: 22)
+            let badgeSize = CGSize(width: 180, height: 54) // ~3x
 
             for i in 0..<doc.pageCount {
                 guard let page = doc.page(at: i) else { continue }
@@ -80,15 +104,19 @@ struct LabeledContinuousPDFPreview: UIViewRepresentable {
                 // Only add for pages currently (roughly) visible to avoid dozens of UILabels
                 if !docView.bounds.insetBy(dx: -400, dy: -400).intersects(rect) { continue }
 
-                let frame = CGRect(x: rect.minX + pad, y: rect.minY + pad, width: badgeSize.width, height: badgeSize.height)
+                let center = CGPoint(x: rect.midX, y: rect.midY)
+                let frame = CGRect(x: center.x - badgeSize.width/2,
+                                   y: center.y - badgeSize.height/2,
+                                   width: badgeSize.width, height: badgeSize.height)
+
                 let label = UILabel(frame: frame)
                 label.tag = 4242
                 label.textAlignment = .center
-                label.font = .systemFont(ofSize: 12, weight: .semibold)
+                label.font = .systemFont(ofSize: 22, weight: .bold)
                 label.text = (i < labels.count) ? labels[i] : "Page \(i+1)"
                 label.textColor = .label
-                label.backgroundColor = UIColor.secondarySystemBackground.withAlphaComponent(0.6)
-                label.layer.cornerRadius = 10
+                label.backgroundColor = UIColor.systemGray5.withAlphaComponent(0.75)
+                label.layer.cornerRadius = 12
                 label.clipsToBounds = true
                 docView.addSubview(label)
             }

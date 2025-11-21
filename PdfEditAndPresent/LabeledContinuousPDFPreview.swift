@@ -30,11 +30,10 @@ struct LabeledContinuousPDFPreview: UIViewRepresentable {
             { [weak coord = context.coordinator] in coord?.fit()     }
         )
 
-        // Go to current page and FIT after first layout
+        // Go to current page
         if let p = document.page(at: max(0, min(currentPage-1, document.pageCount-1))) {
             v.go(to: p)
         }
-        DispatchQueue.main.async { context.coordinator.fit() }
 
         // Reposition badges as the user scrolls/zooms
         if let scroll = v.subviews.compactMap({ $0 as? UIScrollView }).first {
@@ -42,17 +41,22 @@ struct LabeledContinuousPDFPreview: UIViewRepresentable {
         }
 
         context.coordinator.updateBadges(labels: labels)
+
+        // Robust initial fit
+        context.coordinator.ensureInitialFitIfNeeded()
+
         return v
     }
 
     func updateUIView(_ uiView: PDFView, context: Context) {
         if uiView.document !== document {
             uiView.document = document
-            // New doc: go to target page and fit again
+            context.coordinator.didInitialFit = false
+            // New doc: go to target page
             if let p = document.page(at: max(0, min(currentPage-1, document.pageCount-1))) {
                 uiView.go(to: p)
             }
-            DispatchQueue.main.async { context.coordinator.fit() }
+            context.coordinator.ensureInitialFitIfNeeded()
         } else if let p = document.page(at: max(0, min(currentPage-1, document.pageCount-1))) {
             uiView.go(to: p)
         }
@@ -62,8 +66,52 @@ struct LabeledContinuousPDFPreview: UIViewRepresentable {
     final class Coord: NSObject, PDFViewDelegate, UIScrollViewDelegate {
         let parent: LabeledContinuousPDFPreview
         weak var pdfView: PDFView?
+        var didInitialFit: Bool = false
+        private var fitRetryWorkItems: [DispatchWorkItem] = []
 
         init(_ parent: LabeledContinuousPDFPreview) { self.parent = parent }
+
+        // MARK: - Robust Initial Fit
+
+        func ensureInitialFitIfNeeded() {
+            // Cancel any pending retries
+            fitRetryWorkItems.forEach { $0.cancel() }
+            fitRetryWorkItems.removeAll()
+
+            // Try immediately
+            tryInitialFit()
+
+            // Retry after short delays to handle late layout
+            let delays: [Int] = [50, 150, 300]
+            for delay in delays {
+                let work = DispatchWorkItem { [weak self] in
+                    self?.tryInitialFit()
+                }
+                fitRetryWorkItems.append(work)
+                DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(delay), execute: work)
+            }
+        }
+
+        private func tryInitialFit() {
+            guard let v = pdfView else { return }
+
+            // Check if view has settled with non-zero sizes
+            let viewSize = v.bounds.size
+            let docViewSize = v.documentView?.bounds.size ?? .zero
+
+            guard viewSize.width > 0, viewSize.height > 0,
+                  docViewSize.width > 0, docViewSize.height > 0 else {
+                return
+            }
+
+            // Perform the fit
+            v.autoScales = true
+            v.minScaleFactor = v.scaleFactorForSizeToFit
+            v.maxScaleFactor = max(v.maxScaleFactor, 8.0)
+            v.scaleFactor = v.minScaleFactor
+
+            didInitialFit = true
+        }
 
         // MARK: Zoom helpers (used by overlay)
         func fit() {
@@ -73,11 +121,13 @@ struct LabeledContinuousPDFPreview: UIViewRepresentable {
             v.maxScaleFactor = max(v.maxScaleFactor, 8.0)
             v.scaleFactor = v.minScaleFactor
         }
+
         func zoomIn() {
             guard let v = pdfView else { return }
             v.maxScaleFactor = max(v.maxScaleFactor, 8.0)
             v.scaleFactor = min(v.scaleFactor * 1.15, v.maxScaleFactor)
         }
+
         func zoomOut() {
             guard let v = pdfView else { return }
             v.minScaleFactor = v.scaleFactorForSizeToFit
@@ -89,7 +139,9 @@ struct LabeledContinuousPDFPreview: UIViewRepresentable {
             guard let v = sender.object as? PDFView,
                   let page = v.currentPage,
                   let idx = v.document?.index(for: page) else { return }
-            parent.currentPage = idx + 1
+            DispatchQueue.main.async { [weak self] in
+                self?.parent.currentPage = idx + 1
+            }
             updateBadges(labels: parent.labels)
         }
 
@@ -97,12 +149,14 @@ struct LabeledContinuousPDFPreview: UIViewRepresentable {
         func scrollViewDidScroll(_ scrollView: UIScrollView) { updateBadges(labels: parent.labels) }
         func scrollViewDidZoom(_ scrollView: UIScrollView)   { updateBadges(labels: parent.labels) }
 
-        // Centered, large page badges that stick to each page
+        // MARK: - Liquid Glass Page Badges
+
         func updateBadges(labels: [String]) {
             guard let v = pdfView,
                   let docView = v.documentView,
                   let doc = v.document else { return }
 
+            // Remove old badges
             docView.subviews.filter { $0.tag == 4242 }.forEach { $0.removeFromSuperview() }
 
             for i in 0..<doc.pageCount {
@@ -115,20 +169,88 @@ struct LabeledContinuousPDFPreview: UIViewRepresentable {
                 // Skip far-off pages (perf)
                 if !docView.bounds.insetBy(dx: -400, dy: -400).intersects(r) { continue }
 
-                let size = CGSize(width: 180, height: 54)
-                let frame = CGRect(x: r.midX - size.width/2, y: r.midY - size.height/2, width: size.width, height: size.height)
+                let text = (i < labels.count) ? labels[i] : "Page \(i+1)"
+                let badge = createLiquidGlassBadge(text: text)
+                badge.tag = 4242
 
-                let lab = UILabel(frame: frame)
-                lab.tag = 4242
-                lab.textAlignment = .center
-                lab.font = .systemFont(ofSize: 22, weight: .bold)
-                lab.textColor = .label
-                lab.text = (i < labels.count) ? labels[i] : "Page \(i+1)"
-                lab.backgroundColor = UIColor.systemGray5.withAlphaComponent(0.75)
-                lab.layer.cornerRadius = 12
-                lab.clipsToBounds = true
-                docView.addSubview(lab)
+                // Size and position
+                let size = CGSize(width: 180, height: 54)
+                badge.frame = CGRect(
+                    x: r.midX - size.width/2,
+                    y: r.midY - size.height/2,
+                    width: size.width,
+                    height: size.height
+                )
+
+                docView.addSubview(badge)
             }
+        }
+
+        private func createLiquidGlassBadge(text: String) -> UIView {
+            // Container view
+            let container = UIView()
+            container.isUserInteractionEnabled = false
+
+            // Blur effect view
+            let blurEffect = UIBlurEffect(style: .systemMaterial)
+            let blurView = UIVisualEffectView(effect: blurEffect)
+            blurView.translatesAutoresizingMaskIntoConstraints = false
+            blurView.layer.cornerRadius = 16
+            blurView.clipsToBounds = true
+            container.addSubview(blurView)
+
+            // Vibrancy effect for the label
+            let vibrancyEffect = UIVibrancyEffect(blurEffect: blurEffect, style: .label)
+            let vibrancyView = UIVisualEffectView(effect: vibrancyEffect)
+            vibrancyView.translatesAutoresizingMaskIntoConstraints = false
+            blurView.contentView.addSubview(vibrancyView)
+
+            // Label with vibrancy
+            let label = UILabel()
+            label.translatesAutoresizingMaskIntoConstraints = false
+            label.text = text
+            label.font = .systemFont(ofSize: 22, weight: .semibold)
+            label.textAlignment = .center
+            vibrancyView.contentView.addSubview(label)
+
+            // Outer stroke layer for contrast
+            let strokeLayer = CAShapeLayer()
+            strokeLayer.fillColor = UIColor.clear.cgColor
+            strokeLayer.strokeColor = UIColor.white.withAlphaComponent(0.3).cgColor
+            strokeLayer.lineWidth = 0.5
+            container.layer.addSublayer(strokeLayer)
+
+            // Subtle shadow
+            container.layer.shadowColor = UIColor.black.cgColor
+            container.layer.shadowOffset = CGSize(width: 0, height: 2)
+            container.layer.shadowRadius = 8
+            container.layer.shadowOpacity = 0.15
+
+            // Layout constraints
+            NSLayoutConstraint.activate([
+                blurView.topAnchor.constraint(equalTo: container.topAnchor),
+                blurView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+                blurView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+                blurView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+
+                vibrancyView.topAnchor.constraint(equalTo: blurView.contentView.topAnchor),
+                vibrancyView.bottomAnchor.constraint(equalTo: blurView.contentView.bottomAnchor),
+                vibrancyView.leadingAnchor.constraint(equalTo: blurView.contentView.leadingAnchor),
+                vibrancyView.trailingAnchor.constraint(equalTo: blurView.contentView.trailingAnchor),
+
+                label.topAnchor.constraint(equalTo: vibrancyView.contentView.topAnchor),
+                label.bottomAnchor.constraint(equalTo: vibrancyView.contentView.bottomAnchor),
+                label.leadingAnchor.constraint(equalTo: vibrancyView.contentView.leadingAnchor),
+                label.trailingAnchor.constraint(equalTo: vibrancyView.contentView.trailingAnchor),
+            ])
+
+            // Update stroke path after layout
+            DispatchQueue.main.async {
+                let path = UIBezierPath(roundedRect: container.bounds.insetBy(dx: 0.25, dy: 0.25), cornerRadius: 16)
+                strokeLayer.path = path.cgPath
+            }
+
+            return container
         }
     }
 }

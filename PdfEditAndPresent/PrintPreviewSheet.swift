@@ -79,132 +79,152 @@ struct PrintPreviewSheet: View {
         }
     }
 
-    var body: some View {
-        NavigationStack {
-            GeometryReader { geo in
-                HStack(spacing: 16) {
-                    // LEFT: Controls
-                    controls
-                        .frame(width: max(320, geo.size.width * 0.40))
-                        .padding(.leading)
+    // MARK: - Small builders to help the type-checker
 
-                    // RIGHT: Single-page preview + pager
-                    VStack(spacing: 8) {
-                        preview
-                        pager
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding(.trailing)
+    @ViewBuilder
+    private var mainLayout: some View {
+        GeometryReader { geo in
+            HStack(spacing: 16) {
+                controls
+                    .frame(width: max(320, geo.size.width * 0.40))
+                    .padding(.leading)
+
+                VStack(spacing: 8) {
+                    preview
+                    pager
                 }
-            }
-            .navigationTitle("Print Preview")
-            .toolbarTitleDisplayMode(.inline)  // saves horizontal space
-            .toolbar {
-                // Back button (replaces the old .cancellationAction "Cancel")
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button {
-                        dismiss()
-                    } label: {
-                        Label("Back", systemImage: "chevron.left")
-                            .labelStyle(.titleAndIcon)   // text + chevron
-                    }
-                    .buttonStyle(.bordered)             // neutral, like old Cancel
-                    .controlSize(.regular)
-                }
-
-                // Center: printer selector (unchanged)
-                ToolbarItem(placement: .principal) {
-                    ZStack(alignment: .center) {
-                        Button {
-                            guard let host = printerButtonHost else { return }
-                            let rect = host.bounds.insetBy(dx: 0, dy: -4)
-                            pdfManager.presentPrinterPicker(from: host, sourceRect: rect)
-                        } label: {
-                            Label(pdfManager.selectedPrinterName, systemImage: "printer")
-                                .labelStyle(.titleAndIcon)
-                        }
-                        .buttonStyle(.bordered)
-                        .controlSize(.regular)
-
-                        ViewAnchor(view: $printerButtonHost).allowsHitTesting(false)
-                    }
-                }
-
-                // Right side: Share / As PDF / Print (neutral bordered; no blue fill)
-                ToolbarItemGroup(placement: .navigationBarTrailing) {
-                    HStack(spacing: 8) {
-                        // Share
-                        Button {
-                            shareSelection()
-                        } label: {
-                            Image(systemName: "square.and.arrow.up")
-                                .imageScale(.medium)
-                                .accessibilityLabel("Share")
-                        }
-                        .buttonStyle(.bordered)
-                        .tint(.secondary)
-                        .controlSize(.regular)
-
-                        // Save As PDF (folder icon)
-                        Button {
-                            buildFinalPDFDataForCurrentSettings { data in
-                                guard let data else { return }
-                                let url = FileManager.default.temporaryDirectory
-                                    .appendingPathComponent((jobName as NSString).deletingPathExtension + "_output.pdf")
-                                try? data.write(to: url)
-                                self.exportURL = url
-                                self.showExporter = true
-                            }
-                        } label: {
-                            Image(systemName: "folder")
-                                .imageScale(.medium)
-                                .accessibilityLabel("Save as PDF")
-                        }
-                        .buttonStyle(.bordered)
-                        .tint(.secondary)
-                        .controlSize(.regular)
-
-                        // Print
-                        Button("Print") {
-                            startPrint()
-                        }
-                        .disabled(pdfManager.pdfDocument == nil
-                                  || (choice == .custom && customPages.isEmpty))
-                        .buttonStyle(.bordered)
-                        .tint(.secondary)
-                        .controlSize(.regular)
-                    }
-                }
-            }
-            .onAppear {
-                currentPage = max(1, pdfManager.editorCurrentPage)
-                applyQualityPreset(qualityPreset)
-                rebuildPreviewDocument()
-                pdfManager.restoreLastPrinterIfAvailable()
-            }
-            .onChange(of: choice) { _, _ in rebuildPreviewDocument() }
-            .onChange(of: customPages) { _, _ in if choice == .custom { rebuildPreviewDocument() } }
-            .onChange(of: pdfManager.editorCurrentPage) { _, _ in if choice == .current { rebuildPreviewDocument() } }
-            .onChange(of: paperSize) { _, _ in rebuildPreviewDocument() }
-            .onChange(of: pagesPerSheet) { _, _ in rebuildPreviewDocument() }
-            .onChange(of: borderStyle) { _, _ in rebuildPreviewDocument() }
-            .onChange(of: orientation) { _, _ in rebuildPreviewDocument() }
-            .onChange(of: previewDoc) { _, _ in
-                // Ensure correct fit the moment a new doc is composed
-                DispatchQueue.main.async { fitHandler?() }
-            }
-            .sheet(isPresented: $showShareSheet) {
-                ShareSheet(activityItems: shareItems)
-            }
-            .fileExporter(
-                isPresented: $showExporter,
-                document: (exportURL != nil ? ExportablePDF(url: exportURL!) : nil),
-                contentType: .pdf,
-                defaultFilename: (jobName as NSString).deletingPathExtension + "_output"
-            ) { result in
-                // Optional: handle success/failure; don't dismiss automatically
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.trailing)
             }
         }
+    }
+
+    @ToolbarContentBuilder
+    private func leadingBar() -> some ToolbarContent {
+        ToolbarItem(placement: .navigationBarLeading) {
+            backButton
+        }
+    }
+
+    @ToolbarContentBuilder
+    private func principalBar() -> some ToolbarContent {
+        ToolbarItem(placement: .principal) {
+            printerSelector
+        }
+    }
+
+    @ToolbarContentBuilder
+    private func trailingBar() -> some ToolbarContent {
+        ToolbarItemGroup(placement: .navigationBarTrailing) {
+            actionButtons
+        }
+    }
+
+    // Individual toolbar elements
+    private var backButton: some View {
+        Button { dismiss() } label: {
+            Label("Back", systemImage: "chevron.left")
+                .labelStyle(.titleAndIcon)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.regular)
+    }
+
+    private var printerSelector: some View {
+        ZStack(alignment: .center) {
+            Button {
+                guard let host = printerButtonHost else { return }
+                let rect = host.bounds.insetBy(dx: 0, dy: -4)
+                pdfManager.presentPrinterPicker(from: host, sourceRect: rect)
+            } label: {
+                Label(pdfManager.selectedPrinterName, systemImage: "printer")
+                    .labelStyle(.titleAndIcon)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
+
+            ViewAnchor(view: $printerButtonHost).allowsHitTesting(false)
+        }
+    }
+
+    private var actionButtons: some View {
+        HStack(spacing: 8) {
+            // Share
+            Button {
+                shareSelection()
+            } label: {
+                Image(systemName: "square.and.arrow.up")
+                    .imageScale(.medium)
+                    .accessibilityLabel("Share")
+            }
+            .buttonStyle(.bordered)
+            .tint(.secondary)
+            .controlSize(.regular)
+
+            // Save As PDF (folder icon)
+            Button {
+                buildFinalPDFDataForCurrentSettings { data in
+                    guard let data else { return }
+                    let url = FileManager.default.temporaryDirectory
+                        .appendingPathComponent((jobName as NSString).deletingPathExtension + "_output.pdf")
+                    try? data.write(to: url)
+                    self.exportURL = url
+                    self.showExporter = true
+                }
+            } label: {
+                Image(systemName: "folder")
+                    .imageScale(.medium)
+                    .accessibilityLabel("Save as PDF")
+            }
+            .buttonStyle(.bordered)
+            .tint(.secondary)
+            .controlSize(.regular)
+
+            // Print
+            Button("Print") {
+                startPrint()
+            }
+            .disabled(pdfManager.pdfDocument == nil || (choice == .custom && customPages.isEmpty))
+            .buttonStyle(.bordered)
+            .tint(.secondary)
+            .controlSize(.regular)
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            mainLayout
+        }
+        .navigationTitle("Print Preview")
+        .toolbarTitleDisplayMode(.inline)
+        .toolbar {
+            leadingBar()
+            principalBar()
+            trailingBar()
+        }
+        .onAppear {
+            currentPage = max(1, pdfManager.editorCurrentPage)
+            applyQualityPreset(qualityPreset)
+            rebuildPreviewDocument()
+            pdfManager.restoreLastPrinterIfAvailable()
+        }
+        .onChange(of: choice) { _, _ in rebuildPreviewDocument() }
+        .onChange(of: customPages) { _, _ in if choice == .custom { rebuildPreviewDocument() } }
+        .onChange(of: pdfManager.editorCurrentPage) { _, _ in if choice == .current { rebuildPreviewDocument() } }
+        .onChange(of: paperSize) { _, _ in rebuildPreviewDocument() }
+        .onChange(of: pagesPerSheet) { _, _ in rebuildPreviewDocument() }
+        .onChange(of: borderStyle) { _, _ in rebuildPreviewDocument() }
+        .onChange(of: orientation) { _, _ in rebuildPreviewDocument() }
+        .onChange(of: previewDoc) { _, _ in DispatchQueue.main.async { fitHandler?() } }
+        .sheet(isPresented: $showShareSheet) {
+            ShareSheet(activityItems: shareItems)
+        }
+        .fileExporter(
+            isPresented: $showExporter,
+            document: (exportURL != nil ? ExportablePDF(url: exportURL!) : nil),
+            contentType: .pdf,
+            defaultFilename: (jobName as NSString).deletingPathExtension + "_output"
+        ) { _ in }
     }
 
     // MARK: - Views

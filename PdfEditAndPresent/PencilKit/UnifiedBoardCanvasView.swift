@@ -151,7 +151,9 @@ extension UnifiedBoardCanvasView {
         onModeChanged: ((CanvasMode) -> Void)? = nil,
         onPaperKitItemAdded: (() -> Void)? = nil,
         onDrawingChanged: ((Int, PKDrawing?, PKDrawing?) -> Void)? = nil,
-        onToolAPIReady: ((UnifiedBoardToolAPI) -> Void)? = nil
+        onToolAPIReady: ((UnifiedBoardToolAPI) -> Void)? = nil,
+        zoomLevel: CGFloat = 1.0,
+        pageRotation: Int = 0
     ) {
         self.editorData = editorData
         self.pdfManager = pdfManager
@@ -163,6 +165,8 @@ extension UnifiedBoardCanvasView {
         self.onPaperKitItemAdded = onPaperKitItemAdded
         self.onDrawingChanged = onDrawingChanged
         self.onToolAPIReady = onToolAPIReady
+        self.zoomLevel = zoomLevel
+        self.pageRotation = pageRotation
     }
 }
 

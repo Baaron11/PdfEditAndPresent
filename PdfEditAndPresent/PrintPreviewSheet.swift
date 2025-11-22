@@ -8,6 +8,7 @@ struct PrintPreviewSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     // State Management - Split into groups for clarity
+    @StateObject private var viewModel = PrintOptionsViewModel()
     @StateObject private var pageState = PageSelectionState()
     @StateObject private var printState = PrintOptionsState()
     @StateObject private var previewState = PreviewState()
@@ -53,6 +54,7 @@ struct PrintPreviewSheet: View {
                 onAppear: { setupOnAppear() }
             ))
             .modifier(ChangeObserverModifier(
+                viewModel: viewModel,
                 pageState: pageState,
                 printState: printState,
                 previewState: previewState,
@@ -76,6 +78,7 @@ struct PrintPreviewSheet: View {
     
     private var leftPanel: some View {
         PrintOptionsForm(
+            viewModel: viewModel,
             pageState: pageState,
             printState: printState,
             customFieldFocused: $customFieldFocused,
@@ -89,10 +92,10 @@ struct PrintPreviewSheet: View {
             PDFPreviewArea(
                 previewState: previewState,
                 zoomState: zoomState,
-                pageState: pageState,
+                viewModel: viewModel,
                 pdfManager: pdfManager
             )
-            
+
             PageNavigator(
                 currentPage: $previewState.displayPage,
                 maxPage: previewState.displayPageCount
@@ -104,7 +107,7 @@ struct PrintPreviewSheet: View {
     
     private var printDisabled: Bool {
         pdfManager.pdfDocument == nil ||
-        (pageState.choice == .custom && pageState.customPages.isEmpty)
+        (viewModel.selection.isCustom && viewModel.resolvedPages.isEmpty)
     }
     
     private var previewLabels: [String] {
@@ -124,11 +127,19 @@ struct PrintPreviewSheet: View {
     // MARK: - Actions
     
     private func setupOnAppear() {
+        // Initialize viewModel with page count and current page
+        viewModel.setPageCount(pageCount)
+        viewModel.switchToMode(.all, currentEditorPage: pdfManager.editorCurrentPage)
+
+        // Sync legacy state
+        pageState.viewModel = viewModel
         pageState.currentPage = max(1, pdfManager.editorCurrentPage)
+        pageState.syncFromViewModel()
+
         applyQualityPreset(printState.qualityPreset)
         rebuildPreviewDocument()
         pdfManager.restoreLastPrinterIfAvailable()
-        
+
         // Force a rebuild after a short delay to ensure proper initial layout
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             self.rebuildPreviewDocument()
@@ -169,35 +180,30 @@ struct PrintPreviewSheet: View {
     
     private func buildSubsetDocument() -> PDFDocument? {
         guard let base = pdfManager.pdfDocument else { return nil }
-        
-        switch pageState.choice {
-        case .all:
+
+        // Use viewModel.resolvedPages as the single source of truth
+        let pages = viewModel.resolvedPages
+
+        // Return nil if no pages selected
+        guard !pages.isEmpty else { return nil }
+
+        // If all pages selected and it's the full document, return as-is
+        if pages.count == base.pageCount && pages == IndexSet(1...base.pageCount) {
             return base
-            
-        case .current:
-            let idx = max(0, min(pdfManager.editorCurrentPage - 1, base.pageCount - 1))
-            let one = PDFDocument()
-            if let p = base.page(at: idx) {
-                one.insert(p, at: 0)
-            }
-            return one.pageCount > 0 ? one : nil
-            
-        case .custom:
-            // Return nil if no pages are selected to show "No Pages Selected"
-            guard !pageState.customPages.isEmpty else { return nil }
-            
-            let sub = PDFDocument()
-            var i = 0
-            for p in pageState.customPages.sorted() {
-                if p > 0 && p <= base.pageCount {
-                    if let pg = base.page(at: p - 1) {
-                        sub.insert(pg, at: i)
-                        i += 1
-                    }
+        }
+
+        // Build subset document
+        let sub = PDFDocument()
+        var i = 0
+        for p in pages.sorted() {
+            if p > 0 && p <= base.pageCount {
+                if let pg = base.page(at: p - 1) {
+                    sub.insert(pg, at: i)
+                    i += 1
                 }
             }
-            return sub.pageCount > 0 ? sub : nil
         }
+        return sub.pageCount > 0 ? sub : nil
     }
     
     private func shareSelection() {
@@ -291,23 +297,28 @@ struct PrintPreviewSheet: View {
     }
     
     private func buildSelectionData() -> Data? {
-        switch pageState.choice {
-        case .all:
-            return pdfManager.pdfDocument?.dataRepresentation()
-        case .current:
-            return pdfManager.subsetPDFData(for: .current(pdfManager.editorCurrentPage))
-        case .custom:
-            guard !pageState.customPages.isEmpty else { return nil }
-            let sub = PDFDocument()
-            var i = 0
-            for p in pageState.customPages.sorted() {
-                if let pg = pdfManager.pdfDocument?.page(at: p - 1) {
+        guard let base = pdfManager.pdfDocument else { return nil }
+
+        let pages = viewModel.resolvedPages
+        guard !pages.isEmpty else { return nil }
+
+        // If all pages, return full document
+        if pages.count == base.pageCount && pages == IndexSet(1...base.pageCount) {
+            return base.dataRepresentation()
+        }
+
+        // Build subset
+        let sub = PDFDocument()
+        var i = 0
+        for p in pages.sorted() {
+            if p > 0 && p <= base.pageCount {
+                if let pg = base.page(at: p - 1) {
                     sub.insert(pg, at: i)
                     i += 1
                 }
             }
-            return sub.dataRepresentation()
         }
+        return sub.dataRepresentation()
     }
     
     private func buildPrintSelectionData() -> Data? {
@@ -391,14 +402,232 @@ struct PrintPreviewSheet: View {
 
 // MARK: - State Objects
 
+/// Single source of truth for page selection state
+final class PrintOptionsViewModel: ObservableObject {
+    enum PageSelection: Equatable {
+        case all
+        case current(Int) // 1-based
+        case custom(String) // raw text as typed
+
+        var isCustom: Bool {
+            if case .custom = self { return true }
+            return false
+        }
+    }
+
+    @Published var selection: PageSelection = .all
+    @Published var pageCount: Int = 1
+
+    /// The resolved pages to print (1-based), updates whenever selection changes
+    @Published private(set) var resolvedPages: IndexSet = []
+
+    /// Warning message for invalid custom input
+    @Published private(set) var customWarning: String? = nil
+
+    /// Last successfully applied custom string
+    private(set) var lastAppliedCustom: String = ""
+
+    /// Debounce work item for parsing
+    private var parseDebounce: DispatchWorkItem?
+
+    init() {
+        // Initial resolved pages
+        resolvedPages = IndexSet(1...1)
+    }
+
+    func setPageCount(_ n: Int) {
+        let oldCount = pageCount
+        pageCount = max(1, n)
+
+        // Re-resolve if pageCount changed
+        if oldCount != pageCount {
+            resolveSelection()
+        }
+    }
+
+    func setCurrentPage(_ page: Int) {
+        if case .current = selection {
+            selection = .current(page)
+            resolveSelection()
+        }
+    }
+
+    /// Switch to a new selection mode, with appropriate prefill behavior
+    func switchToMode(_ newMode: PageSelection, currentEditorPage: Int) {
+        let previousSelection = selection
+
+        switch newMode {
+        case .all:
+            selection = .all
+            resolveSelection()
+
+        case .current(let page):
+            selection = .current(page > 0 ? page : currentEditorPage)
+            resolveSelection()
+
+        case .custom(let explicitText):
+            // If explicit text provided, use it
+            if !explicitText.isEmpty {
+                selection = .custom(explicitText)
+            } else {
+                // Determine prefill based on previous selection
+                let prefill: String
+                switch previousSelection {
+                case .all:
+                    prefill = pageCount > 0 ? "1-\(pageCount)" : ""
+                case .current(let page):
+                    prefill = "\(page)"
+                case .custom(let existingText):
+                    prefill = existingText
+                }
+                selection = .custom(prefill)
+            }
+            // Immediately parse and apply
+            resolveSelection()
+        }
+    }
+
+    /// Update custom text and trigger debounced parsing
+    func updateCustomText(_ text: String) {
+        guard case .custom = selection else { return }
+        selection = .custom(text)
+
+        // Debounce parsing
+        parseDebounce?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.resolveSelection()
+        }
+        parseDebounce = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
+    }
+
+    /// Parse and apply custom text immediately (no debounce)
+    func parseAndApplyCustom(_ text: String) {
+        selection = .custom(text)
+        resolveSelection()
+    }
+
+    /// Get current custom text (returns empty string if not in custom mode)
+    var customText: String {
+        if case .custom(let text) = selection {
+            return text
+        }
+        return ""
+    }
+
+    /// Resolve current selection to IndexSet
+    private func resolveSelection() {
+        customWarning = nil
+
+        switch selection {
+        case .all:
+            if pageCount > 0 {
+                resolvedPages = IndexSet(1...pageCount)
+            } else {
+                resolvedPages = []
+            }
+
+        case .current(let page):
+            let validPage = max(1, min(page, pageCount))
+            resolvedPages = IndexSet(integer: validPage)
+
+        case .custom(let text):
+            let result = Self.parsePageRanges(text, pageCount: pageCount)
+            resolvedPages = result.pages
+            customWarning = result.warning
+            if !result.pages.isEmpty {
+                lastAppliedCustom = text
+            }
+        }
+    }
+
+    /// Parse custom page range string into IndexSet
+    /// Returns parsed pages and optional warning message
+    static func parsePageRanges(_ input: String, pageCount: Int) -> (pages: IndexSet, warning: String?) {
+        guard pageCount > 0 else {
+            return ([], nil)
+        }
+
+        let cleaned = input.replacingOccurrences(of: " ", with: "")
+        if cleaned.isEmpty {
+            return ([], nil)
+        }
+
+        var pages = IndexSet()
+        var warning: String? = nil
+
+        for token in cleaned.split(separator: ",") {
+            let tokenStr = String(token)
+
+            if tokenStr.contains("-") {
+                let parts = tokenStr.split(separator: "-")
+                guard parts.count == 2,
+                      let a = Int(parts[0]),
+                      let b = Int(parts[1]),
+                      a > 0, b > 0 else {
+                    warning = "Invalid range"
+                    continue
+                }
+
+                let lo = max(1, min(min(a, b), pageCount))
+                let hi = max(1, min(max(a, b), pageCount))
+
+                if lo <= pageCount {
+                    pages.insert(integersIn: lo...hi)
+                }
+            } else if let p = Int(tokenStr) {
+                if p > 0 && p <= pageCount {
+                    pages.insert(p)
+                } else if p <= 0 {
+                    // Ignore zeros and negatives
+                    continue
+                }
+                // Out of range pages are silently ignored (clamped)
+            } else {
+                warning = "Invalid format"
+            }
+        }
+
+        if pages.isEmpty && !cleaned.isEmpty {
+            warning = "Invalid range"
+        }
+
+        return (pages, warning)
+    }
+}
+
+// Legacy compatibility wrapper
 class PageSelectionState: ObservableObject {
     enum Choice: Hashable { case all, custom, current }
+
     @Published var choice: Choice = .all
     @Published var currentPage: Int = 1
     @Published var customInput: String = ""
     @Published var customPages: [Int] = []
     @Published var customWarning: String? = nil
     var customDebounce: DispatchWorkItem?
+
+    /// Reference to the new view model for migration
+    weak var viewModel: PrintOptionsViewModel?
+
+    /// Sync from viewModel to legacy state
+    func syncFromViewModel() {
+        guard let vm = viewModel else { return }
+
+        switch vm.selection {
+        case .all:
+            choice = .all
+        case .current(let page):
+            choice = .current
+            currentPage = page
+        case .custom(let text):
+            choice = .custom
+            customInput = text
+        }
+
+        customPages = Array(vm.resolvedPages).sorted()
+        customWarning = vm.customWarning
+    }
 }
 
 class PrintOptionsState: ObservableObject {
@@ -484,20 +713,25 @@ struct LifecycleModifier: ViewModifier {
 }
 
 struct ChangeObserverModifier: ViewModifier {
+    @ObservedObject var viewModel: PrintOptionsViewModel
     @ObservedObject var pageState: PageSelectionState
     @ObservedObject var printState: PrintOptionsState
     @ObservedObject var previewState: PreviewState
     let pdfManager: PDFManager
     let rebuildAction: () -> Void
-    
+
     func body(content: Content) -> some View {
         content
-            .onChange(of: pageState.choice) { _, _ in rebuildAction() }
-            .onChange(of: pageState.customPages) { _, _ in
-                if pageState.choice == .custom { rebuildAction() }
+            .onChange(of: viewModel.selection) { _, _ in
+                pageState.syncFromViewModel()
+                rebuildAction()
             }
-            .onChange(of: pdfManager.editorCurrentPage) { _, _ in
-                if pageState.choice == .current { rebuildAction() }
+            .onChange(of: viewModel.resolvedPages) { _, _ in
+                pageState.syncFromViewModel()
+                rebuildAction()
+            }
+            .onChange(of: pdfManager.editorCurrentPage) { _, newPage in
+                viewModel.setCurrentPage(newPage)
             }
             .onChange(of: printState.paperSize) { _, _ in rebuildAction() }
             .onChange(of: printState.pagesPerSheet) { _, _ in rebuildAction() }
@@ -628,6 +862,7 @@ struct PrintToolbarButton: View {
 // MARK: - Supporting Views (keep existing implementations)
 
 struct PrintOptionsForm: View {
+    @ObservedObject var viewModel: PrintOptionsViewModel
     @ObservedObject var pageState: PageSelectionState
     @ObservedObject var printState: PrintOptionsState
     @FocusState.Binding var customFieldFocused: Bool
@@ -637,7 +872,7 @@ struct PrintOptionsForm: View {
     var body: some View {
         Form {
             PagesFormSection(
-                pageState: pageState,
+                viewModel: viewModel,
                 customFieldFocused: $customFieldFocused,
                 pageCount: pageCount,
                 currentEditorPage: currentEditorPage
@@ -651,20 +886,38 @@ struct PrintOptionsForm: View {
 }
 
 struct PagesFormSection: View {
-    @ObservedObject var pageState: PageSelectionState
+    @ObservedObject var viewModel: PrintOptionsViewModel
     @FocusState.Binding var customFieldFocused: Bool
     let pageCount: Int
     let currentEditorPage: Int
 
+    // Local state for custom text field
+    @State private var customText: String = ""
+
+    // Check if current selection is each mode
+    private var isAll: Bool {
+        if case .all = viewModel.selection { return true }
+        return false
+    }
+
+    private var isCurrent: Bool {
+        if case .current = viewModel.selection { return true }
+        return false
+    }
+
+    private var isCustom: Bool {
+        viewModel.selection.isCustom
+    }
+
     // Text shown in field when disabled (non-custom modes)
-    private var autoFillTextForNonCustom: String {
-        switch pageState.choice {
+    private var displayText: String {
+        switch viewModel.selection {
         case .all:
             return pageCount > 0 ? "1-\(pageCount)" : ""
-        case .current:
-            return "\(max(1, currentEditorPage))"
+        case .current(let page):
+            return "\(page)"
         case .custom:
-            return pageState.customInput
+            return customText
         }
     }
 
@@ -672,32 +925,22 @@ struct PagesFormSection: View {
         Section("Pages") {
             VStack(alignment: .leading, spacing: 12) {
                 // 1) All Pages
-                RadioRow(title: "All Pages", isOn: pageState.choice == .all) {
-                    pageState.choice = .all
-                    pageState.customInput = pageCount > 0 ? "1-\(pageCount)" : ""
+                RadioRow(title: "All Pages", isOn: isAll) {
+                    viewModel.switchToMode(.all, currentEditorPage: currentEditorPage)
                 }
 
-                // 2) Current Page (renamed from "Current Page Only")
-                RadioRow(title: "Current Page", isOn: pageState.choice == .current) {
-                    pageState.choice = .current
-                    pageState.customInput = "\(max(1, currentEditorPage))"
+                // 2) Current Page
+                RadioRow(title: "Current Page", isOn: isCurrent) {
+                    viewModel.switchToMode(.current(currentEditorPage), currentEditorPage: currentEditorPage)
                 }
 
                 // 3) Custom + always-visible text field
                 HStack(alignment: .center, spacing: 8) {
-                    RadioRow(title: "Custom", isOn: pageState.choice == .custom) {
-                        // Seed with current value so user can extend it
-                        if pageState.choice != .custom {
-                            switch pageState.choice {
-                            case .current:
-                                pageState.customInput = "\(max(1, currentEditorPage))"
-                            case .all:
-                                pageState.customInput = pageCount > 0 ? "1-\(pageCount)" : ""
-                            case .custom:
-                                break
-                            }
-                        }
-                        pageState.choice = .custom
+                    RadioRow(title: "Custom", isOn: isCustom) {
+                        // Switch to custom mode - viewModel handles prefill
+                        viewModel.switchToMode(.custom(""), currentEditorPage: currentEditorPage)
+                        // Update local text from viewModel
+                        customText = viewModel.customText
                         // Focus the field for immediate editing
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                             customFieldFocused = true
@@ -709,12 +952,11 @@ struct PagesFormSection: View {
                     VStack(alignment: .leading, spacing: 4) {
                         TextField("e.g. 1-3, 5, 7-9",
                                   text: Binding(
-                                    get: {
-                                        pageState.choice == .custom ? pageState.customInput : autoFillTextForNonCustom
-                                    },
+                                    get: { isCustom ? customText : displayText },
                                     set: { newValue in
-                                        if pageState.choice == .custom {
-                                            pageState.customInput = newValue
+                                        if isCustom {
+                                            customText = newValue
+                                            viewModel.updateCustomText(newValue)
                                         }
                                     }
                                   )
@@ -724,12 +966,12 @@ struct PagesFormSection: View {
                         .keyboardType(.numbersAndPunctuation)
                         .focused($customFieldFocused)
                         .frame(maxWidth: 200)
-                        .disabled(pageState.choice != .custom)
+                        .disabled(!isCustom)
                         .accessibilityLabel("Page range")
-                        .accessibilityValue(pageState.choice == .custom ? pageState.customInput : autoFillTextForNonCustom)
-                        .accessibilityHint(pageState.choice == .custom ? "Editable" : "Select Custom to edit")
+                        .accessibilityValue(isCustom ? customText : displayText)
+                        .accessibilityHint(isCustom ? "Editable" : "Select Custom to edit")
 
-                        if let warning = pageState.customWarning, pageState.choice == .custom {
+                        if let warning = viewModel.customWarning, isCustom {
                             Text(warning)
                                 .font(.caption)
                                 .foregroundStyle(.red)
@@ -740,73 +982,17 @@ struct PagesFormSection: View {
                 }
             }
         }
-        // Initialize field on appear
+        // Sync local customText when viewModel's selection changes
+        .onChange(of: viewModel.selection) { _, newSelection in
+            if case .custom(let text) = newSelection {
+                customText = text
+            }
+        }
+        // Initialize on appear
         .onAppear {
-            if pageState.customInput.isEmpty {
-                pageState.customInput = pageCount > 0 ? "1-\(pageCount)" : ""
-            }
-        }
-        // Parse when user edits in Custom mode
-        .onChange(of: pageState.customInput) { _, _ in
-            if pageState.choice == .custom {
-                handleCustomInputChange()
-            }
-        }
-    }
-
-    private func handleCustomInputChange() {
-        pageState.customDebounce?.cancel()
-        let work = DispatchWorkItem {
-            parseCustomPages(keepFocus: true)
-            DispatchQueue.main.async {
-                pageState.customPages = pageState.customPages
-            }
-        }
-        pageState.customDebounce = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.30, execute: work)
-    }
-
-    private func parseCustomPages(keepFocus: Bool = false) {
-        pageState.customWarning = nil
-        guard pageCount > 0 else {
-            pageState.customPages = []
-            return
-        }
-
-        let cleaned = pageState.customInput.replacingOccurrences(of: " ", with: "")
-        if cleaned.isEmpty {
-            pageState.customPages = []
-            return
-        }
-
-        var pages = Set<Int>()
-
-        for token in cleaned.split(separator: ",") {
-            if token.contains("-") {
-                let parts = token.split(separator: "-")
-                guard parts.count == 2,
-                      let a = Int(parts[0]),
-                      let b = Int(parts[1]) else {
-                    pageState.customWarning = "Invalid range"
-                    continue
-                }
-                let lo = min(max(min(a, b), 1), pageCount)
-                let hi = min(max(max(a, b), 1), pageCount)
-                for p in lo...hi {
-                    pages.insert(p)
-                }
-            } else if let p = Int(token) {
-                pages.insert(min(max(p, 1), pageCount))
-            } else {
-                pageState.customWarning = "Invalid format"
-            }
-        }
-
-        pageState.customPages = pages.sorted()
-
-        if keepFocus {
-            DispatchQueue.main.async {
-                customFieldFocused = true
+            viewModel.setPageCount(pageCount)
+            if case .custom(let text) = viewModel.selection {
+                customText = text
             }
         }
     }
@@ -1026,11 +1212,11 @@ struct MaxDPISlider: View {
 struct PDFPreviewArea: View {
     @ObservedObject var previewState: PreviewState
     @ObservedObject var zoomState: ZoomState
-    @ObservedObject var pageState: PageSelectionState
+    @ObservedObject var viewModel: PrintOptionsViewModel
     let pdfManager: PDFManager
     @State private var hasInitializedFit = false
-    @State private var lastChoice: PageSelectionState.Choice? = nil
-    
+    @State private var lastSelection: PrintOptionsViewModel.PageSelection? = nil
+
     var body: some View {
         ZStack {
             if let doc = previewState.previewDoc {
@@ -1054,10 +1240,10 @@ struct PDFPreviewArea: View {
                         performInitialFit()
                     }
                 }
-                .onChange(of: pageState.choice) { _, newChoice in
-                    // Force a fit when switching away from custom or to a new choice
-                    if lastChoice != newChoice {
-                        lastChoice = newChoice
+                .onChange(of: viewModel.selection) { _, newSelection in
+                    // Force a fit when switching modes
+                    if lastSelection != newSelection {
+                        lastSelection = newSelection
                         hasInitializedFit = false
                         // Delay slightly to let the view update
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
@@ -1079,21 +1265,13 @@ struct PDFPreviewArea: View {
             }
         }
     }
-    
+
     private func buildLabels() -> [String] {
-        switch pageState.choice {
-        case .all:
-            // Show actual page numbers 1..N
-            return (1...(previewState.previewDoc?.pageCount ?? 1)).map { "Page \($0)" }
-        case .current:
-            // Show the actual current page number
-            return ["Page \(pdfManager.editorCurrentPage)"]
-        case .custom:
-            // Show the actual page numbers selected (e.g., "Page 1", "Page 4", "Page 5")
-            return pageState.customPages.map { "Page \($0)" }
-        }
+        // Use resolvedPages as single source of truth for labels
+        let pages = viewModel.resolvedPages.sorted()
+        return pages.map { "Page \($0)" }
     }
-    
+
     private func registerHandlers(zin: @escaping () -> Void,
                                  zout: @escaping () -> Void,
                                  fit: @escaping () -> Void) {
@@ -1101,21 +1279,21 @@ struct PDFPreviewArea: View {
             zoomState.zoomInHandler = zin
             zoomState.zoomOutHandler = zout
             zoomState.fitHandler = fit
-            
+
             // Trigger initial fit after handlers are registered
             if !self.hasInitializedFit {
                 self.performInitialFit()
             }
         }
     }
-    
+
     private func performInitialFit() {
         // Reset the flag
         hasInitializedFit = false
-        
+
         // Try multiple times with delays to ensure view is laid out
         let delays: [Double] = [0.05, 0.15, 0.25, 0.35, 0.5]
-        
+
         for (index, delay) in delays.enumerated() {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                 // Check if we still need to fit

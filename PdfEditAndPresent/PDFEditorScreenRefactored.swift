@@ -849,24 +849,15 @@ struct PDFEditorScreenRefactored: View {
                     editorData: editorData,
                     visiblePageIndex: $visiblePageIndex,
                     canvasMode: $canvasMode,
-                    marginSettings: $marginSettings,
-                    onCanvasModeChanged: { newMode in
-                        print("📍 Canvas mode -> \(newMode)")
+                    onModeChanged: { newMode in
+                        print("📍 Continuous canvas mode -> \(newMode)")
                     },
                     onPaperKitItemAdded: {
-                        print("📌 Item added to canvas")
+                        print("📌 Item added to continuous canvas")
                         pdfViewModel.hasUnsavedChanges = true
                     },
-                    onDrawingChanged: { pageIndex, pdfDrawing, marginDrawing in
-                        if let pdfDrawing = pdfDrawing {
-                            pdfManager.setPdfAnchoredDrawing(pdfDrawing, for: pageIndex)
-                        }
-                        if let marginDrawing = marginDrawing {
-                            pdfManager.setMarginDrawing(marginDrawing, for: pageIndex)
-                        }
-                    },
                     onToolAPIReady: { api in
-                        print("🧩 Tool API ready")
+                        print("🧩 [Continuous] Tool API ready")
                         let adapter = UnifiedBoardCanvasAdapter(api: api)
                         self.drawingCanvasAdapter = adapter
                         drawingVM.attachCanvas(adapter)

@@ -72,6 +72,9 @@ final class UnifiedBoardCanvasController: UIViewController {
     // Previous tool for lasso restore
     private var previousTool: PKTool?
 
+    // PDFManager reference for querying page sizes
+    weak var pdfManager: PDFManager?
+
     // MARK: - Initialization
 
     override func viewDidLoad() {
@@ -161,16 +164,16 @@ final class UnifiedBoardCanvasController: UIViewController {
         canvas.translatesAutoresizingMaskIntoConstraints = false
         host.addSubview(canvas)
 
-        // Fill container to overlay on PDF correctly
+        // Constrain canvas to PDF page size (NOT container size)
         NSLayoutConstraint.activate([
             canvas.leadingAnchor.constraint(equalTo: host.leadingAnchor),
-            canvas.trailingAnchor.constraint(equalTo: host.trailingAnchor),
             canvas.topAnchor.constraint(equalTo: host.topAnchor),
-            canvas.bottomAnchor.constraint(equalTo: host.bottomAnchor)
+            canvas.widthAnchor.constraint(equalToConstant: canvasSize.width),
+            canvas.heightAnchor.constraint(equalToConstant: canvasSize.height)
         ])
 
         // Setup
-        canvas.backgroundColor = .clear  // Must be clear, not blue
+        canvas.backgroundColor = UIColor.blue.withAlphaComponent(0.2)
         canvas.isOpaque = false
         canvas.isUserInteractionEnabled = false
         canvas.allowsFingerDrawing = true
@@ -182,6 +185,8 @@ final class UnifiedBoardCanvasController: UIViewController {
         // Clipping
         canvas.clipsToBounds = true
         canvas.layer.masksToBounds = true
+
+        print("🎯 Canvas pinned to page size: \(canvasSize)")
     }
 
     private func hostScrollView(from view: UIView?) -> UIScrollView? {
@@ -309,6 +314,9 @@ final class UnifiedBoardCanvasController: UIViewController {
         // Initialize lasso controller with the active canvas
         lassoController = PKLassoSelectionController(canvasView: pdfCanvas)
 
+        // Reconfigure canvas constraints to match current page size
+        reconfigureCanvasConstraints()
+
         // Set initial tool
         let defaultTool = PKInkingTool(.pen, color: .black, width: 2)
         pdfCanvas.tool = defaultTool
@@ -365,6 +373,14 @@ final class UnifiedBoardCanvasController: UIViewController {
         saveCurrentPageDrawings()
 
         currentPageIndex = pageIndex
+
+        // Get the actual page size from PDFManager for this specific page
+        if let pdfManager = pdfManager {
+            let pageSize = pdfManager.effectiveSize(for: pageIndex)
+            canvasSize = pageSize
+            print("🎯 Updated canvasSize to match page \(pageIndex + 1): \(pageSize)")
+        }
+
         loadPageDrawings(for: pageIndex)
         rebuildTransformer()
         applyTransforms()
@@ -442,6 +458,28 @@ final class UnifiedBoardCanvasController: UIViewController {
         marginDrawingCanvas?.isHidden = !marginSettings.isEnabled
 
         print("🧩 Transforms applied, canvas bounds=\(containerView.bounds.size)")
+    }
+
+    private func reconfigureCanvasConstraints() {
+        guard let pdfCanvas = pdfDrawingCanvas,
+              let marginCanvas = marginDrawingCanvas else { return }
+
+        // Deactivate old constraints
+        pdfCanvas.constraints.forEach { $0.isActive = false }
+        marginCanvas.constraints.forEach { $0.isActive = false }
+
+        // Re-pin with new canvasSize
+        pdfCanvas.removeFromSuperview()
+        marginCanvas.removeFromSuperview()
+
+        pinCanvas(pdfCanvas, to: containerView)
+        pinCanvas(marginCanvas, to: containerView)
+
+        // Force layout update
+        containerView.setNeedsLayout()
+        containerView.layoutIfNeeded()
+
+        print("🎯 Canvas constraints reconfigured for size: \(canvasSize)")
     }
 
     // MARK: - Drawing Persistence

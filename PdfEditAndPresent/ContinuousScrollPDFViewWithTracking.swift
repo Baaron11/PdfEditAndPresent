@@ -1,10 +1,18 @@
 import SwiftUI
 import PDFKit
+import PencilKit
 
 // MARK: - Continuous Scroll PDF View with Tracking + Margin Support
 struct ContinuousScrollPDFViewWithTracking: View {
     @ObservedObject var pdfManager: PDFManager
+    @ObservedObject var editorData: EditorData
     @Binding var visiblePageIndex: Int
+    @Binding var canvasMode: CanvasMode
+
+    // Callbacks for canvas events
+    var onModeChanged: ((CanvasMode) -> Void)?
+    var onPaperKitItemAdded: (() -> Void)?
+    var onToolAPIReady: ((UnifiedBoardToolAPI) -> Void)?
 
     @State private var pageImages: [Int: UIImage] = [:]
     @State private var pageSizes: [Int: CGSize] = [:]
@@ -145,21 +153,38 @@ struct ContinuousScrollPDFViewWithTracking: View {
                 let aspectRatio = imageSize.height / imageSize.width
                 let displayWidth = imageSize.width * pdfManager.zoomLevel
                 let displayHeight = displayWidth * aspectRatio
-                
-                Image(uiImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
+
+                ZStack {
+                    Image(uiImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: displayWidth, height: displayHeight)
+                        .clipped()
+
+                    // Embedded canvas for this page
+                    UnifiedBoardCanvasView(
+                        editorData: editorData,
+                        pdfManager: pdfManager,
+                        canvasMode: $canvasMode,
+                        canvasSize: pdfManager.effectiveSize(for: pageIndex),
+                        currentPageIndex: pageIndex,
+                        onModeChanged: onModeChanged,
+                        onPaperKitItemAdded: onPaperKitItemAdded,
+                        onToolAPIReady: pageIndex == visiblePageIndex ? onToolAPIReady : nil
+                    )
                     .frame(width: displayWidth, height: displayHeight)
-                    .clipped()
-                    .background(Color.white)
-                    .cornerRadius(4)
-                    .shadow(radius: 2)
+                    .allowsHitTesting(canvasMode == .drawing || canvasMode == .selecting)
+                }
+                .frame(width: displayWidth, height: displayHeight)
+                .background(Color.white)
+                .cornerRadius(4)
+                .shadow(radius: 2)
             } else {
                 // Placeholder - use default aspect ratio (Letter: 8.5x11)
                 let defaultAspectRatio: CGFloat = 11.0 / 8.5
                 let displayWidth = availableWidth * pdfManager.zoomLevel
                 let displayHeight = displayWidth * defaultAspectRatio
-                
+
                 RoundedRectangle(cornerRadius: 4)
                     .fill(Color.white)
                     .shadow(radius: 2)

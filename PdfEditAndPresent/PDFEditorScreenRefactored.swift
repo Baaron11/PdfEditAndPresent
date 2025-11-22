@@ -829,7 +829,7 @@ struct PDFEditorScreenRefactored: View {
     
     private var continuousScrollView: some View {
         ZStack(alignment: .bottom) {
-            // Scrollable PDF content
+            // Scrollable PDF content with embedded canvases per page
             HStack(spacing: 0) {
                 if isSidebarOpen {
                     ContinuousScrollThumbnailSidebar(
@@ -846,46 +846,26 @@ struct PDFEditorScreenRefactored: View {
 
                 ContinuousScrollPDFViewWithTracking(
                     pdfManager: pdfManager,
-                    visiblePageIndex: $visiblePageIndex
+                    editorData: editorData,
+                    visiblePageIndex: $visiblePageIndex,
+                    canvasMode: $canvasMode,
+                    onModeChanged: { newMode in
+                        print("📍 Continuous canvas mode -> \(newMode)")
+                    },
+                    onPaperKitItemAdded: {
+                        print("📌 Item added to continuous canvas")
+                        pdfViewModel.hasUnsavedChanges = true
+                    },
+                    onToolAPIReady: { api in
+                        print("🧩 [Continuous] Tool API ready")
+                        let adapter = UnifiedBoardCanvasAdapter(api: api)
+                        self.drawingCanvasAdapter = adapter
+                        drawingVM.attachCanvas(adapter)
+                    }
                 )
                 .ignoresSafeArea()
                 .gesture(continuousZoomGesture)
             }
-
-            // === Drawing canvas overlay for visible page ===
-            UnifiedBoardCanvasView(
-                editorData: editorData,
-                pdfManager: pdfManager,
-                canvasMode: $canvasMode,
-                marginSettings: $marginSettings,
-                canvasSize: pdfManager.effectiveSize(for: visiblePageIndex),
-                currentPageIndex: visiblePageIndex,
-                onModeChanged: { newMode in
-                    print("📍 Continuous canvas mode -> \(newMode)")
-                },
-                onPaperKitItemAdded: {
-                    print("📌 Item added to continuous canvas")
-                    pdfViewModel.hasUnsavedChanges = true
-                },
-                onToolAPIReady: { api in
-                    print("🧩 [Continuous] Tool API ready")
-                    let adapter = UnifiedBoardCanvasAdapter(api: api)
-                    self.drawingCanvasAdapter = adapter
-                    drawingVM.attachCanvas(adapter)
-                },
-                zoomLevel: pdfManager.zoomLevel,
-                pageRotation: pdfManager.rotationForPage(visiblePageIndex)
-            )
-            .id("continuous-\(visiblePageIndex)")
-            .padding(.trailing, 15) // Leave room for scrollbar
-            .allowsHitTesting(canvasMode == .drawing || canvasMode == .selecting)
-            .transition(.opacity)
-            .zIndex(2)
-            .scaleEffect(pdfManager.zoomLevel, anchor: .topLeading)
-            .rotationEffect(
-                .degrees(Double(pdfManager.rotationForPage(visiblePageIndex))),
-                anchor: .topLeading
-            )
 
             // === Drawing toolbar overlay ===
             if showDrawingToolbar {

@@ -90,7 +90,15 @@ final class UnifiedBoardCanvasController: UIViewController {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        print("🔧 [CanvasController] layoutSubviews bounds=\(view.bounds.size)")
+        // At this point containerView has a real size - reapply transforms
+        print("🧩 viewDidLayoutSubviews container bounds=\(containerView.bounds)")
+        applyTransforms()
+
+        // Debug prints for canvas frames
+        if let pdfCanvas = pdfDrawingCanvas {
+            print("🎯 pdfCanvas frame=\(pdfCanvas.frame) bounds=\(pdfCanvas.bounds)")
+        }
+        print("🎯 containerView frame=\(containerView.frame) bounds=\(containerView.bounds)")
     }
 
     deinit {
@@ -360,9 +368,8 @@ final class UnifiedBoardCanvasController: UIViewController {
         // marginDrawingCanvas stays at identity (canvas space)
         marginDrawingCanvas?.transform = .identity
 
-        // Ensure canvas frames match container bounds
-        pdfDrawingCanvas?.frame = containerView.bounds
-        marginDrawingCanvas?.frame = containerView.bounds
+        // Note: Don't set frame manually - Auto Layout constraints handle sizing
+        // This was causing zero-size frames when called before layout
 
         // Update margin canvas visibility based on margins enabled
         marginDrawingCanvas?.isHidden = !marginSettings.isEnabled

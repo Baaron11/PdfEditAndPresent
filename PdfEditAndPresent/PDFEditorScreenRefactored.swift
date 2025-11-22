@@ -865,13 +865,20 @@ struct PDFEditorScreenRefactored: View {
                     let adapter = UnifiedBoardCanvasAdapter(api: api)
                     self.drawingCanvasAdapter = adapter
                     drawingVM.attachCanvas(adapter)
-                }
+                },
+                zoomLevel: pdfManager.zoomLevel,
+                pageRotation: pdfManager.rotationForPage(visiblePageIndex)
             )
             .id("continuous-\(visiblePageIndex)")
             .padding(.trailing, 15) // Leave room for scrollbar
             .allowsHitTesting(canvasMode == .drawing || canvasMode == .selecting)
             .transition(.opacity)
             .zIndex(2)
+            .scaleEffect(pdfManager.zoomLevel, anchor: .topLeading)
+            .rotationEffect(
+                .degrees(Double(pdfManager.rotationForPage(visiblePageIndex))),
+                anchor: .topLeading
+            )
 
             // === Drawing toolbar overlay ===
             if showDrawingToolbar {

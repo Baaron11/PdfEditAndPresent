@@ -162,9 +162,9 @@ final class UnifiedBoardCanvasController: UIViewController {
         host.addSubview(canvas)
         NSLayoutConstraint.activate([
             canvas.leadingAnchor.constraint(equalTo: host.leadingAnchor),
-            canvas.trailingAnchor.constraint(equalTo: host.trailingAnchor),
             canvas.topAnchor.constraint(equalTo: host.topAnchor),
-            canvas.bottomAnchor.constraint(equalTo: host.bottomAnchor)
+            canvas.widthAnchor.constraint(equalToConstant: canvasSize.width),
+            canvas.heightAnchor.constraint(equalToConstant: canvasSize.height)
         ])
         canvas.backgroundColor = UIColor.blue.withAlphaComponent(0.2)
         canvas.isOpaque = false

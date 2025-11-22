@@ -64,6 +64,7 @@ final class UnifiedBoardCanvasController: UIViewController {
     var onModeChanged: ((CanvasMode) -> Void)?
     var onPaperKitItemAdded: (() -> Void)?
     var onDrawingChanged: ((Int, PKDrawing?, PKDrawing?) -> Void)?
+    var onCanvasModeChanged: ((CanvasMode) -> Void)?
 
     // Alignment state
     private(set) var currentAlignment: PDFAlignment = .center
@@ -86,6 +87,32 @@ final class UnifiedBoardCanvasController: UIViewController {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         print("UnifiedBoardCanvasController viewDidAppear - actual bounds: \(view.bounds)")
+
+        // Find the nearest PDF scroll view in both Single and Continuous modes
+        if let scroll = hostScrollView(from: view.superview) ?? hostScrollView(from: view) {
+            // Make scroll not steal PencilKit strokes
+            scroll.delaysContentTouches = false
+            scroll.canCancelContentTouches = true
+
+            if let drawGR = pdfDrawingCanvas?.drawingGestureRecognizer {
+                // Prefer PencilKit drawing over scroll panning
+                scroll.panGestureRecognizer.require(toFail: drawGR)
+            }
+
+            // While in drawing mode, temporarily disable scroll panning
+            onCanvasModeChanged = { [weak scroll] mode in
+                let drawing = (mode == .drawing)
+                scroll?.isScrollEnabled = !drawing
+                print("🎯 scroll.isScrollEnabled=\(!drawing)")
+            }
+        }
+
+        // Debug prints
+        if let pdfCanvas = pdfDrawingCanvas {
+            print("🎯 pdfCanvas frame=\(pdfCanvas.frame) bounds=\(pdfCanvas.bounds)")
+            print("🎯 pdfCanvas isUserInteractionEnabled=\(pdfCanvas.isUserInteractionEnabled)")
+        }
+        print("🎯 containerView frame=\(containerView.frame) bounds=\(containerView.bounds)")
     }
 
     override func viewDidLayoutSubviews() {
@@ -124,6 +151,47 @@ final class UnifiedBoardCanvasController: UIViewController {
         ])
 
         print("Container view set up with Auto Layout")
+    }
+
+    // MARK: - Canvas Setup Helpers
+
+    private func pinCanvas(_ canvas: PKCanvasView, to host: UIView) {
+        canvas.translatesAutoresizingMaskIntoConstraints = false
+        host.addSubview(canvas)
+        NSLayoutConstraint.activate([
+            canvas.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+            canvas.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+            canvas.topAnchor.constraint(equalTo: host.topAnchor),
+            canvas.bottomAnchor.constraint(equalTo: host.bottomAnchor)
+        ])
+        canvas.backgroundColor = .clear
+        canvas.isOpaque = false
+        canvas.isUserInteractionEnabled = true
+        canvas.allowsFingerDrawing = true
+        canvas.drawingPolicy = .anyInput
+
+        // Sanity toggles - prevent internal zoom/scroll
+        canvas.maximumZoomScale = 1.0
+        canvas.minimumZoomScale = 1.0
+        canvas.isScrollEnabled = false
+    }
+
+    private func hostScrollView(from view: UIView?) -> UIScrollView? {
+        var v = view
+        while let cur = v {
+            if let sv = cur as? UIScrollView { return sv }
+            v = cur.superview
+        }
+        return nil
+    }
+
+    /// Enable or disable drawing on PKCanvasViews
+    func enableDrawing(_ enabled: Bool) {
+        pdfDrawingCanvas?.isUserInteractionEnabled = enabled
+        marginDrawingCanvas?.isUserInteractionEnabled = enabled
+        if enabled {
+            pdfDrawingCanvas?.becomeFirstResponder()
+        }
     }
 
     // MARK: - Public API
@@ -193,36 +261,12 @@ final class UnifiedBoardCanvasController: UIViewController {
 
         // Create PDF-anchored canvas (Layer 2)
         let pdfCanvas = PKCanvasView()
-        pdfCanvas.translatesAutoresizingMaskIntoConstraints = false
-        containerView.addSubview(pdfCanvas)
-
-        NSLayoutConstraint.activate([
-            pdfCanvas.topAnchor.constraint(equalTo: containerView.topAnchor),
-            pdfCanvas.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
-            pdfCanvas.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
-            pdfCanvas.bottomAnchor.constraint(equalTo: containerView.bottomAnchor)
-        ])
-
-        pdfCanvas.backgroundColor = .clear
-        pdfCanvas.isOpaque = false
-        pdfCanvas.drawingPolicy = .anyInput
+        pinCanvas(pdfCanvas, to: containerView)
         pdfCanvas.delegate = self
 
         // Create margin-anchored canvas (Layer 3)
         let marginCanvas = PKCanvasView()
-        marginCanvas.translatesAutoresizingMaskIntoConstraints = false
-        containerView.addSubview(marginCanvas)
-
-        NSLayoutConstraint.activate([
-            marginCanvas.topAnchor.constraint(equalTo: containerView.topAnchor),
-            marginCanvas.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
-            marginCanvas.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
-            marginCanvas.bottomAnchor.constraint(equalTo: containerView.bottomAnchor)
-        ])
-
-        marginCanvas.backgroundColor = .clear
-        marginCanvas.isOpaque = false
-        marginCanvas.drawingPolicy = .anyInput
+        pinCanvas(marginCanvas, to: containerView)
         marginCanvas.delegate = self
 
         // Shared tool picker
@@ -235,11 +279,9 @@ final class UnifiedBoardCanvasController: UIViewController {
         marginDrawingCanvas = marginCanvas
         pencilKitToolPicker = toolPicker
 
-        // Enable multi-touch and finger drawing for both canvases
+        // Enable multi-touch for both canvases
         pdfCanvas.isMultipleTouchEnabled = true
         marginCanvas.isMultipleTouchEnabled = true
-        pdfCanvas.allowsFingerDrawing = true
-        marginCanvas.allowsFingerDrawing = true
         pdfCanvas.becomeFirstResponder()
 
         // Initialize lasso controller with the active canvas
@@ -251,7 +293,8 @@ final class UnifiedBoardCanvasController: UIViewController {
         marginCanvas.tool = defaultTool
         previousTool = defaultTool
 
-        // Bring canvases and interceptor to front in correct order
+        // Bring container on top of PDF, then canvases above anything inside
+        view.bringSubviewToFront(containerView)
         containerView.bringSubviewToFront(pdfCanvas)
         containerView.bringSubviewToFront(marginCanvas)
         containerView.bringSubviewToFront(modeInterceptor)
@@ -266,6 +309,7 @@ final class UnifiedBoardCanvasController: UIViewController {
     func setCanvasMode(_ mode: CanvasMode) {
         self.canvasMode = mode
         onModeChanged?(mode)
+        onCanvasModeChanged?(mode)
         if mode == .selecting {
             lassoController?.beginLasso()
         } else {
@@ -497,25 +541,21 @@ final class UnifiedBoardCanvasController: UIViewController {
     private func updateGestureRouting() {
         switch canvasMode {
         case .drawing:
-            pdfDrawingCanvas?.isUserInteractionEnabled = true
-            marginDrawingCanvas?.isUserInteractionEnabled = true
-            pdfDrawingCanvas?.becomeFirstResponder()
-            marginDrawingCanvas?.becomeFirstResponder()
+            enableDrawing(true)
             paperKitView?.isUserInteractionEnabled = false
             // Keep interceptor enabled to observe and flip to select
             modeInterceptor.isUserInteractionEnabled = true
             print("🖊️ Drawing mode active — PKCanvasViews enabled")
+            print("🎯 pdfCanvas isUserInteractionEnabled=\(pdfDrawingCanvas?.isUserInteractionEnabled ?? false)")
 
         case .selecting:
-            pdfDrawingCanvas?.isUserInteractionEnabled = false
-            marginDrawingCanvas?.isUserInteractionEnabled = false
+            enableDrawing(false)
             paperKitView?.isUserInteractionEnabled = true
             modeInterceptor.isUserInteractionEnabled = true
             print("Select mode: PaperKit enabled")
 
         case .idle:
-            pdfDrawingCanvas?.isUserInteractionEnabled = false
-            marginDrawingCanvas?.isUserInteractionEnabled = false
+            enableDrawing(false)
             paperKitView?.isUserInteractionEnabled = false
             modeInterceptor.isUserInteractionEnabled = false
             print("Idle mode: All disabled")

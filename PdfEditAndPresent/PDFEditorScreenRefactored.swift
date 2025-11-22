@@ -125,6 +125,10 @@ struct PDFEditorScreenRefactored: View {
     @State private var showFileMenuSaveAs = false
     @State private var fileMenuSaveAsFilename = ""
 
+    // Drawing toolbar state
+    @State private var showDrawingToolbar = false
+    @State private var toolAPI: UnifiedBoardToolAPI?
+
     // Change File Size sheet
     @State private var showChangeFileSizeSheet = false
 
@@ -514,6 +518,16 @@ struct PDFEditorScreenRefactored: View {
 
                 modeToggleView
 
+                Button(action: { showDrawingToolbar.toggle() }) {
+                    Image(systemName: "paintbrush")
+                        .font(.system(size: 13))
+                        .frame(width: ToolbarMetrics.button, height: ToolbarMetrics.button)
+                        .background(showDrawingToolbar ? Color.blue.opacity(0.15) : Color.gray.opacity(0.1))
+                        .cornerRadius(8)
+                        .foregroundColor(.primary)
+                }
+                .accessibilityLabel("Drawing Tools")
+
                 Button(action: { /* TODO */ }) {
                     Text("Elements")
                         .font(.system(size: 12, weight: .semibold))
@@ -863,12 +877,28 @@ struct PDFEditorScreenRefactored: View {
                     onPaperKitItemAdded: {
                         print("📌 Item added to canvas - marking as unsaved")
                         pdfViewModel.hasUnsavedChanges = true
+                    },
+                    onToolAPIReady: { api in
+                        self.toolAPI = api
                     }
                 )
                 .id(canvasKey)
-                
+
                 if canvasMode == .selecting {
                     panGestureOverlay
+                }
+
+                if showDrawingToolbar, let api = toolAPI {
+                    DrawingToolbarView(
+                        setInk: { ink, color, width in api.setInkTool(ink, color, width) },
+                        setEraser: { api.setEraser() },
+                        beginLasso: { api.beginLasso() },
+                        undo: { api.undo() },
+                        redo: { api.redo() }
+                    )
+                    .padding()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
             }
         }

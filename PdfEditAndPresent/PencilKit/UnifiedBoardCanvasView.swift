@@ -16,6 +16,7 @@ struct UnifiedBoardCanvasView: UIViewControllerRepresentable {
     var onModeChanged: ((CanvasMode) -> Void)?
     var onPaperKitItemAdded: (() -> Void)?
     var onDrawingChanged: ((Int, PKDrawing?, PKDrawing?) -> Void)?
+    var onToolAPIReady: ((UnifiedBoardToolAPI) -> Void)?
 
     func makeUIViewController(context: Context) -> UnifiedBoardCanvasController {
         let controller = UnifiedBoardCanvasController()
@@ -70,6 +71,19 @@ struct UnifiedBoardCanvasView: UIViewControllerRepresentable {
 
         // Store reference for future updates
         context.coordinator.controller = controller
+
+        // Emit tool API
+        let api = UnifiedBoardToolAPI(
+            setInkTool: { [weak controller] ink, color, width in controller?.setInkTool(ink, color: color, width: width) },
+            setEraser: { [weak controller] in controller?.setEraser() },
+            beginLasso: { [weak controller] in controller?.beginLassoSelection() },
+            endLasso: { [weak controller] in controller?.endLassoSelection() },
+            undo: { [weak controller] in controller?.undo() },
+            redo: { [weak controller] in controller?.redo() }
+        )
+        DispatchQueue.main.async {
+            onToolAPIReady?(api)
+        }
 
         return controller
     }
@@ -129,7 +143,8 @@ extension UnifiedBoardCanvasView {
         currentPageIndex: Int,
         onModeChanged: ((CanvasMode) -> Void)? = nil,
         onPaperKitItemAdded: (() -> Void)? = nil,
-        onDrawingChanged: ((Int, PKDrawing?, PKDrawing?) -> Void)? = nil
+        onDrawingChanged: ((Int, PKDrawing?, PKDrawing?) -> Void)? = nil,
+        onToolAPIReady: ((UnifiedBoardToolAPI) -> Void)? = nil
     ) {
         self.editorData = editorData
         self.pdfManager = pdfManager
@@ -140,6 +155,7 @@ extension UnifiedBoardCanvasView {
         self.onModeChanged = onModeChanged
         self.onPaperKitItemAdded = onPaperKitItemAdded
         self.onDrawingChanged = onDrawingChanged
+        self.onToolAPIReady = onToolAPIReady
     }
 }
 

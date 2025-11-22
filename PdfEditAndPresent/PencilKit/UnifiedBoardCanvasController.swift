@@ -689,3 +689,39 @@ extension UnifiedBoardCanvasController: UIGestureRecognizerDelegate {
         return true
     }
 }
+
+// MARK: - Tool API Methods
+extension UnifiedBoardCanvasController {
+    func setInkTool(_ ink: PKInkingTool.InkType, color: UIColor, width: CGFloat) {
+        let tool = PKInkingTool(ink, color: color, width: width)
+        pdfDrawingCanvas?.tool = tool
+        marginDrawingCanvas?.tool = tool
+        previousTool = tool
+        setCanvasMode(.drawing)
+    }
+
+    func setEraser() {
+        let eraser = PKEraserTool(.vector)
+        pdfDrawingCanvas?.tool = eraser
+        marginDrawingCanvas?.tool = eraser
+        setCanvasMode(.drawing)
+    }
+
+    func beginLassoSelection() {
+        lassoController?.beginLasso()
+        setCanvasMode(.selecting)
+    }
+
+    func endLassoSelection() {
+        lassoController?.endLassoAndRestorePreviousTool()
+        setCanvasMode(.drawing)
+    }
+
+    func undo() {
+        activeCanvas?.undoManager?.undo()
+    }
+
+    func redo() {
+        activeCanvas?.undoManager?.redo()
+    }
+}

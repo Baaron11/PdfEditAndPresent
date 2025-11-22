@@ -160,38 +160,28 @@ final class UnifiedBoardCanvasController: UIViewController {
     private func pinCanvas(_ canvas: PKCanvasView, to host: UIView) {
         canvas.translatesAutoresizingMaskIntoConstraints = false
         host.addSubview(canvas)
+
+        // Fill container to overlay on PDF correctly
         NSLayoutConstraint.activate([
             canvas.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+            canvas.trailingAnchor.constraint(equalTo: host.trailingAnchor),
             canvas.topAnchor.constraint(equalTo: host.topAnchor),
-            canvas.widthAnchor.constraint(equalToConstant: canvasSize.width),
-            canvas.heightAnchor.constraint(equalToConstant: canvasSize.height)
+            canvas.bottomAnchor.constraint(equalTo: host.bottomAnchor)
         ])
-        canvas.backgroundColor = UIColor.blue.withAlphaComponent(0.2)
+
+        // Setup
+        canvas.backgroundColor = .clear  // Must be clear, not blue
         canvas.isOpaque = false
-
-        let debugLabel = UILabel()
-        debugLabel.text = "Canvas"
-        debugLabel.textColor = .blue
-        debugLabel.font = .systemFont(ofSize: 12, weight: .bold)
-        debugLabel.translatesAutoresizingMaskIntoConstraints = false
-        canvas.addSubview(debugLabel)
-        NSLayoutConstraint.activate([
-            debugLabel.topAnchor.constraint(equalTo: canvas.topAnchor, constant: 10),
-            debugLabel.leadingAnchor.constraint(equalTo: canvas.leadingAnchor, constant: 10)
-        ])
-
-        // Prevent canvas from rendering outside its bounds
-        canvas.clipsToBounds = true
-        canvas.layer.masksToBounds = true
-
         canvas.isUserInteractionEnabled = false
         canvas.allowsFingerDrawing = true
         canvas.drawingPolicy = .anyInput
-
-        // Sanity toggles - prevent internal zoom/scroll
         canvas.maximumZoomScale = 1.0
         canvas.minimumZoomScale = 1.0
         canvas.isScrollEnabled = false
+
+        // Clipping
+        canvas.clipsToBounds = true
+        canvas.layer.masksToBounds = true
     }
 
     private func hostScrollView(from view: UIView?) -> UIScrollView? {

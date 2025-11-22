@@ -12,6 +12,9 @@ struct UnifiedBoardCanvasView: UIViewControllerRepresentable {
     let canvasSize: CGSize
     let currentPageIndex: Int
 
+    var zoomLevel: CGFloat = 1.0
+    var pageRotation: Int = 0
+
     // Callbacks
     var onModeChanged: ((CanvasMode) -> Void)?
     var onPaperKitItemAdded: (() -> Void)?
@@ -85,6 +88,8 @@ struct UnifiedBoardCanvasView: UIViewControllerRepresentable {
             onToolAPIReady?(api)
         }
 
+        controller.updateZoomAndRotation(zoomLevel, pageRotation)
+
         return controller
     }
 
@@ -116,6 +121,8 @@ struct UnifiedBoardCanvasView: UIViewControllerRepresentable {
         if uiViewController.canvasSize != canvasSize {
             uiViewController.initializeCanvas(size: canvasSize)
         }
+
+        uiViewController.updateZoomAndRotation(zoomLevel, pageRotation)
     }
 
     func makeCoordinator() -> Coordinator {

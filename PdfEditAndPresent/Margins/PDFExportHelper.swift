@@ -28,7 +28,7 @@ struct PDFExportHelper {
         let image = renderer.image { context in
             // Fill background
             UIColor.white.setFill()
-            context.fill(CGRect(origin: .zero, size: canvasSize))
+            context.cgContext.fill(CGRect(origin: CGPoint.zero, size: canvasSize))
 
             // Draw PDF at its frame position
             context.cgContext.saveGState()
@@ -40,21 +40,21 @@ struct PDFExportHelper {
             // Draw PDF-anchored strokes (denormalize from PDF space to canvas space)
             let transformer = DrawingCoordinateTransformer(
                 marginHelper: marginHelper,
-                canvasViewBounds: CGRect(origin: .zero, size: canvasSize)
+                canvasViewBounds: CGRect(origin: CGPoint.zero, size: canvasSize)
             )
             let denormalizedPdfDrawing = transformer.denormalizeDrawingFromPDFToCanvas(pdfAnchoredDrawing)
             let pdfDrawingImage = denormalizedPdfDrawing.image(
-                from: CGRect(origin: .zero, size: canvasSize),
+                from: CGRect(origin: CGPoint.zero, size: canvasSize),
                 scale: 1.0
             )
-            pdfDrawingImage.draw(at: .zero)
+            pdfDrawingImage.draw(at: CGPoint.zero)
 
             // Draw margin strokes (already in canvas space)
             let marginDrawingImage = marginDrawing.image(
-                from: CGRect(origin: .zero, size: canvasSize),
+                from: CGRect(origin: CGPoint.zero, size: canvasSize),
                 scale: 1.0
             )
-            marginDrawingImage.draw(at: .zero)
+            marginDrawingImage.draw(at: CGPoint.zero)
         }
 
         return image
@@ -75,7 +75,7 @@ struct PDFExportHelper {
 
         let image = UIGraphicsImageRenderer(size: renderSize).image { context in
             UIColor.white.setFill()
-            context.fill(CGRect(origin: .zero, size: renderSize))
+            context.cgContext.fill(CGRect(origin: CGPoint.zero, size: renderSize))
 
             if includeMargins {
                 let pdfFrame = marginHelper.pdfFrameInCanvas
@@ -99,9 +99,9 @@ struct PDFExportHelper {
         let renderer = UIGraphicsImageRenderer(size: marginHelper.canvasSize)
 
         let composited = renderer.image { context in
-            pageImage.draw(at: .zero)
-            let drawingImage = marginDrawing.image(from: CGRect(origin: .zero, size: marginHelper.canvasSize), scale: 1.0)
-            drawingImage.draw(at: .zero)
+            pageImage.draw(at: CGPoint.zero)
+            let drawingImage = marginDrawing.image(from: CGRect(origin: CGPoint.zero, size: marginHelper.canvasSize), scale: 1.0)
+            drawingImage.draw(at: CGPoint.zero)
         }
         return composited
     }
@@ -117,10 +117,10 @@ struct PDFExportHelper {
             marginDrawing: marginDrawing
         ) else { return nil }
 
-        let pdfRenderer = UIGraphicsPDFRenderer(bounds: CGRect(origin: .zero, size: marginHelper.canvasSize))
+        let pdfRenderer = UIGraphicsPDFRenderer(bounds: CGRect(origin: CGPoint.zero, size: marginHelper.canvasSize))
         let pdfData = pdfRenderer.pdfData { ctx in
             ctx.beginPage()
-            composited.draw(at: .zero)
+            composited.draw(at: CGPoint.zero)
         }
         return PDFDocument(data: pdfData)
     }
@@ -133,7 +133,7 @@ struct PDFExportHelper {
             newDocument.insert(originalPage, at: 0)
         } else {
             let originalBounds = originalPage.bounds(for: .mediaBox)
-            let renderer = UIGraphicsPDFRenderer(bounds: CGRect(origin: .zero, size: originalBounds.size))
+            let renderer = UIGraphicsPDFRenderer(bounds: CGRect(origin: CGPoint.zero, size: originalBounds.size))
             let pdfData = renderer.pdfData { ctx in
                 ctx.beginPage()
                 originalPage.draw(with: .mediaBox, to: ctx.cgContext)
@@ -147,10 +147,10 @@ struct PDFExportHelper {
 
     func createPDFWithMargins(_ marginDrawing: PKDrawing) -> PDFDocument? {
         guard let composited = renderPageWithMarginDrawing(marginDrawing) else { return nil }
-        let pdfRenderer = UIGraphicsPDFRenderer(bounds: CGRect(origin: .zero, size: marginHelper.canvasSize))
+        let pdfRenderer = UIGraphicsPDFRenderer(bounds: CGRect(origin: CGPoint.zero, size: marginHelper.canvasSize))
         let pdfData = pdfRenderer.pdfData { ctx in
             ctx.beginPage()
-            composited.draw(at: .zero)
+            composited.draw(at: CGPoint.zero)
         }
         return PDFDocument(data: pdfData)
     }
@@ -170,14 +170,14 @@ struct PDFExportHelper {
             document = createPDFWithoutMargins()
         case .marginsOnly:
             guard let marginDrawing = marginDrawing else { return false }
-            let pdfRenderer = UIGraphicsPDFRenderer(bounds: CGRect(origin: .zero, size: marginHelper.canvasSize))
+            let pdfRenderer = UIGraphicsPDFRenderer(bounds: CGRect(origin: CGPoint.zero, size: marginHelper.canvasSize))
             let pdfData = pdfRenderer.pdfData { ctx in
                 ctx.beginPage()
                 UIColor.white.setFill()
-                UIBezierPath(rect: CGRect(origin: .zero, size: marginHelper.canvasSize)).fill()
+                UIBezierPath(rect: CGRect(origin: CGPoint.zero, size: marginHelper.canvasSize)).fill()
 
-                let drawingImage = marginDrawing.image(from: CGRect(origin: .zero, size: marginHelper.canvasSize), scale: 1.0)
-                drawingImage.draw(at: .zero)
+                let drawingImage = marginDrawing.image(from: CGRect(origin: CGPoint.zero, size: marginHelper.canvasSize), scale: 1.0)
+                drawingImage.draw(at: CGPoint.zero)
             }
             document = PDFDocument(data: pdfData)
         case .both:
@@ -231,10 +231,10 @@ struct PDFExportHelper {
                     pdfAnchoredDrawing: pdfAnchoredDrawing,
                     marginDrawing: marginDrawing
                 ) {
-                    let renderer = UIGraphicsPDFRenderer(bounds: CGRect(origin: .zero, size: helper.canvasSize))
+                    let renderer = UIGraphicsPDFRenderer(bounds: CGRect(origin: CGPoint.zero, size: helper.canvasSize))
                     let pdfData = renderer.pdfData { ctx in
                         ctx.beginPage()
-                        composited.draw(at: .zero)
+                        composited.draw(at: CGPoint.zero)
                     }
                     if let tempDoc = PDFDocument(data: pdfData), let page = tempDoc.page(at: 0) {
                         pageToAdd = page
@@ -272,7 +272,7 @@ struct PDFExportHelper {
 
             // Fill background
             UIColor.white.setFill()
-            context.fill(CGRect(origin: .zero, size: canvasSize))
+            context.cgContext.fill(CGRect(origin: CGPoint.zero, size: canvasSize))
 
             // Draw PDF at its frame position
             context.cgContext.saveGState()
@@ -284,21 +284,21 @@ struct PDFExportHelper {
             // Draw PDF-anchored strokes
             let transformer = DrawingCoordinateTransformer(
                 marginHelper: marginHelper,
-                canvasViewBounds: CGRect(origin: .zero, size: canvasSize)
+                canvasViewBounds: CGRect(origin: CGPoint.zero, size: canvasSize)
             )
             let denormalizedPdfDrawing = transformer.denormalizeDrawingFromPDFToCanvas(pdfAnchoredDrawing)
             let pdfDrawingImage = denormalizedPdfDrawing.image(
-                from: CGRect(origin: .zero, size: canvasSize),
+                from: CGRect(origin: CGPoint.zero, size: canvasSize),
                 scale: 1.0
             )
-            pdfDrawingImage.draw(at: .zero)
+            pdfDrawingImage.draw(at: CGPoint.zero)
 
             // Draw margin strokes
             let marginDrawingImage = marginDrawing.image(
-                from: CGRect(origin: .zero, size: canvasSize),
+                from: CGRect(origin: CGPoint.zero, size: canvasSize),
                 scale: 1.0
             )
-            marginDrawingImage.draw(at: .zero)
+            marginDrawingImage.draw(at: CGPoint.zero)
         }
 
         return image

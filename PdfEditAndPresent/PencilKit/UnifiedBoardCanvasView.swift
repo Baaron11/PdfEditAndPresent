@@ -134,7 +134,7 @@ extension UnifiedBoardCanvasView {
         self.editorData = editorData
         self.pdfManager = pdfManager
         self._canvasMode = canvasMode
-        self._marginSettings = .constant(pdfManager.getMarginSettings(for: currentPageIndex))
+        self._marginSettings = .constant(pdfManager.currentPageMarginSettings)
         self.canvasSize = canvasSize
         self.currentPageIndex = currentPageIndex
         self.onModeChanged = onModeChanged

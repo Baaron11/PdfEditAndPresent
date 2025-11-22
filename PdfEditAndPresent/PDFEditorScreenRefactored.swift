@@ -536,7 +536,9 @@ struct PDFEditorScreenRefactored: View {
                 Button(action: {
                     showDrawingToolbar.toggle()
                     canvasMode = .drawing
-                    print("🔧 Paintbrush tapped. showDrawingToolbar=\(showDrawingToolbar)")
+                    if showDrawingToolbar {
+                        print("🎨 Drawing toolbar opened — enabling PencilKit drawing")
+                    }
                 }) {
                     Image(systemName: "paintbrush")
                         .font(.system(size: 13))
@@ -820,8 +822,8 @@ struct PDFEditorScreenRefactored: View {
     }
     
     private var continuousScrollView: some View {
-        ZStack {
-            // Existing layout
+        ZStack(alignment: .bottom) {
+            // Scrollable PDF content
             HStack(spacing: 0) {
                 if isSidebarOpen {
                     ContinuousScrollThumbnailSidebar(
@@ -844,7 +846,7 @@ struct PDFEditorScreenRefactored: View {
                 .gesture(continuousZoomGesture)
             }
 
-            // === Canvas overlay for the currently visible page (continuous mode) ===
+            // === Drawing canvas overlay for visible page ===
             UnifiedBoardCanvasView(
                 editorData: editorData,
                 pdfManager: pdfManager,
@@ -852,10 +854,10 @@ struct PDFEditorScreenRefactored: View {
                 canvasSize: pdfManager.effectiveSize(for: visiblePageIndex),
                 currentPageIndex: visiblePageIndex,
                 onModeChanged: { newMode in
-                    print("📍 [Continuous] Canvas mode -> \(newMode)")
+                    print("📍 Continuous canvas mode -> \(newMode)")
                 },
                 onPaperKitItemAdded: {
-                    print("📌 [Continuous] Item added")
+                    print("📌 Item added to continuous canvas")
                     pdfViewModel.hasUnsavedChanges = true
                 },
                 onToolAPIReady: { api in
@@ -865,26 +867,27 @@ struct PDFEditorScreenRefactored: View {
                     drawingVM.attachCanvas(adapter)
                 }
             )
+            .id("continuous-\(visiblePageIndex)")
             .allowsHitTesting(canvasMode == .drawing || canvasMode == .selecting)
-            .id("continuous-canvas-\(visiblePageIndex)")
+            .transition(.opacity)
+            .zIndex(2)
 
-            // === Drawing toolbar overlay at bottom ===
-            if showDrawingToolbar, let _ = drawingCanvasAdapter {
+            // === Drawing toolbar overlay ===
+            if showDrawingToolbar {
                 DrawingToolbar(
                     selectedBrush: $selectedBrush,
                     drawingViewModel: drawingVM,
                     brushManager: brushManager,
                     onClear: {
-                        print("🔧 Clear from toolbar (continuous)")
-                        let idx = visiblePageIndex
-                        pdfManager.setMarginDrawing(PKDrawing(), for: idx)
+                        editorData.clearCanvas()
+                        print("🧹 Cleared canvas (continuous mode)")
                     }
                 )
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-                .padding(.bottom, 8)
+                .padding(.bottom, 12)
+                .background(.ultraThinMaterial)
                 .shadow(radius: 3)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                .ignoresSafeArea(.keyboard, edges: .bottom)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .zIndex(3)
             }
         }
     }

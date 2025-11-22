@@ -74,8 +74,17 @@ final class DrawingViewModel: ObservableObject {
     private var rulerController: PKRulerSupportController?
     private var lassoController: PKLassoSelectionController?
 
+    // MARK: - Canvas Adapter (for DrawingToolbar integration)
+    private weak var canvasAdapter: DrawingCanvasAPI?
+
     // MARK: - Init
     init() { }
+
+    // MARK: - Canvas Adapter Attachment
+    func attachCanvas(_ canvas: DrawingCanvasAPI) {
+        self.canvasAdapter = canvas
+        print("🧩 DrawingViewModel attached to canvas adapter")
+    }
 
     // MARK: - Canvas Attachment
     func attachCanvas(canvasView: PKCanvasView, toolPicker: PKToolPicker) {
@@ -108,13 +117,26 @@ final class DrawingViewModel: ObservableObject {
 
     // MARK: - Ruler API
     func toggleRuler() {
+        isRulerActive.toggle()
         rulerController?.toggleRuler()
+        canvasAdapter?.toggleRuler()
         syncFromCanvas()
     }
 
     // MARK: - Lasso API
-    func beginLasso() { lassoController?.beginLasso(); syncFromCanvas() }
-    func endLasso()   { lassoController?.endLassoAndRestorePreviousTool(); syncFromCanvas() }
+    func beginLasso() {
+        isLassoActive = true
+        lassoController?.beginLasso()
+        canvasAdapter?.beginLasso()
+        syncFromCanvas()
+    }
+
+    func endLasso() {
+        isLassoActive = false
+        lassoController?.endLassoAndRestorePreviousTool()
+        canvasAdapter?.endLasso()
+        syncFromCanvas()
+    }
 
     func cut()             { lassoController?.cut() }
     func copy()            { lassoController?.copy() }
@@ -186,7 +208,10 @@ final class DrawingViewModel: ObservableObject {
         print("   Has undo manager: \(undoManager != nil)")
         print("   Can undo: \(undoManager?.canUndo ?? false)")
 
-        if let handler = canvasUndoHandler {
+        // Prefer adapter if available
+        if let adapter = canvasAdapter {
+            adapter.undo()
+        } else if let handler = canvasUndoHandler {
             print("   Using canvas handler")
             handler()
         } else {
@@ -202,7 +227,10 @@ final class DrawingViewModel: ObservableObject {
         print("   Has undo manager: \(undoManager != nil)")
         print("   Can redo: \(undoManager?.canRedo ?? false)")
 
-        if let handler = canvasRedoHandler {
+        // Prefer adapter if available
+        if let adapter = canvasAdapter {
+            adapter.redo()
+        } else if let handler = canvasRedoHandler {
             print("   Using canvas handler")
             handler()
         } else {
@@ -356,6 +384,13 @@ final class DrawingViewModel: ObservableObject {
     func selectBrush(_ brush: BrushConfiguration) {
         currentColor = brush.color.color
         currentWidth = brush.width
+
+        // Call through to canvas adapter if available
+        if brush.type == .eraser {
+            canvasAdapter?.setEraser()
+        } else {
+            canvasAdapter?.setInk(ink: brush.type.inkType, color: brush.color.uiColor, width: brush.width)
+        }
     }
 
     // MARK: - Cleanup

@@ -11,13 +11,22 @@ enum BrushType: String, Codable, CaseIterable {
     case pencil = "Pencil"
     case marker = "Marker"
     case eraser = "Eraser"
-    
+
     var iconName: String {
         switch self {
         case .pen: return "pencil.tip"
         case .pencil: return "pencil"
         case .marker: return "paintbrush.pointed"
         case .eraser: return "eraser"
+        }
+    }
+
+    var inkType: PKInkingTool.InkType {
+        switch self {
+        case .pen: return .pen
+        case .pencil: return .pencil
+        case .marker: return .marker
+        case .eraser: return .pen // fallback, eraser should use setEraser() instead
         }
     }
 }

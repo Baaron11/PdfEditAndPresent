@@ -79,7 +79,8 @@ struct PrintPreviewSheet: View {
             pageState: pageState,
             printState: printState,
             customFieldFocused: $customFieldFocused,
-            pageCount: pageCount
+            pageCount: pageCount,
+            currentEditorPage: pdfManager.editorCurrentPage
         )
     }
     
@@ -631,17 +632,19 @@ struct PrintOptionsForm: View {
     @ObservedObject var printState: PrintOptionsState
     @FocusState.Binding var customFieldFocused: Bool
     let pageCount: Int
-    
+    let currentEditorPage: Int
+
     var body: some View {
         Form {
             PagesFormSection(
                 pageState: pageState,
                 customFieldFocused: $customFieldFocused,
-                pageCount: pageCount
+                pageCount: pageCount,
+                currentEditorPage: currentEditorPage
             )
-            
+
             OptionsFormSection(printState: printState)
-            
+
             LayoutFormSection(printState: printState)
         }
     }
@@ -651,90 +654,133 @@ struct PagesFormSection: View {
     @ObservedObject var pageState: PageSelectionState
     @FocusState.Binding var customFieldFocused: Bool
     let pageCount: Int
-    
+    let currentEditorPage: Int
+
+    // Text shown in field when disabled (non-custom modes)
+    private var autoFillTextForNonCustom: String {
+        switch pageState.choice {
+        case .all:
+            return pageCount > 0 ? "1-\(pageCount)" : ""
+        case .current:
+            return "\(max(1, currentEditorPage))"
+        case .custom:
+            return pageState.customInput
+        }
+    }
+
     var body: some View {
         Section("Pages") {
             VStack(alignment: .leading, spacing: 12) {
-                // All Pages option
+                // 1) All Pages
                 RadioRow(title: "All Pages", isOn: pageState.choice == .all) {
                     pageState.choice = .all
+                    pageState.customInput = pageCount > 0 ? "1-\(pageCount)" : ""
                 }
-                
-                // Custom option with properly centered layout
+
+                // 2) Current Page (renamed from "Current Page Only")
+                RadioRow(title: "Current Page", isOn: pageState.choice == .current) {
+                    pageState.choice = .current
+                    pageState.customInput = "\(max(1, currentEditorPage))"
+                }
+
+                // 3) Custom + always-visible text field
                 HStack(alignment: .center, spacing: 8) {
                     RadioRow(title: "Custom", isOn: pageState.choice == .custom) {
-                        pageState.choice = .custom
-                    }
-                    .frame(minWidth: 100, alignment: .leading)
-                    
-                    // Show text field when custom is selected
-                    if pageState.choice == .custom {
-                        VStack(alignment: .leading, spacing: 4) {
-                            TextField("e.g. 1-3, 5, 7-9", text: $pageState.customInput)
-                                .textFieldStyle(.roundedBorder)
-                                .textInputAutocapitalization(.never)
-                                .keyboardType(.numbersAndPunctuation)
-                                .focused($customFieldFocused)
-                                .frame(maxWidth: 200)
-                                .onChange(of: pageState.customInput) { _, _ in
-                                    handleCustomInputChange()
-                                }
-                                .onAppear {
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                        customFieldFocused = true
-                                    }
-                                }
-                            
-                            if let warning = pageState.customWarning {
-                                Text(warning)
-                                    .font(.caption)
-                                    .foregroundStyle(.red)
+                        // Seed with current value so user can extend it
+                        if pageState.choice != .custom {
+                            switch pageState.choice {
+                            case .current:
+                                pageState.customInput = "\(max(1, currentEditorPage))"
+                            case .all:
+                                pageState.customInput = pageCount > 0 ? "1-\(pageCount)" : ""
+                            case .custom:
+                                break
                             }
                         }
-                        .transition(.opacity.combined(with: .move(edge: .leading)))
+                        pageState.choice = .custom
+                        // Focus the field for immediate editing
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                            customFieldFocused = true
+                        }
                     }
-                    
+                    .frame(minWidth: 100, alignment: .leading)
+
+                    // Text field is ALWAYS visible
+                    VStack(alignment: .leading, spacing: 4) {
+                        TextField("e.g. 1-3, 5, 7-9",
+                                  text: Binding(
+                                    get: {
+                                        pageState.choice == .custom ? pageState.customInput : autoFillTextForNonCustom
+                                    },
+                                    set: { newValue in
+                                        if pageState.choice == .custom {
+                                            pageState.customInput = newValue
+                                        }
+                                    }
+                                  )
+                        )
+                        .textFieldStyle(.roundedBorder)
+                        .textInputAutocapitalization(.never)
+                        .keyboardType(.numbersAndPunctuation)
+                        .focused($customFieldFocused)
+                        .frame(maxWidth: 200)
+                        .disabled(pageState.choice != .custom)
+                        .accessibilityLabel("Page range")
+                        .accessibilityValue(pageState.choice == .custom ? pageState.customInput : autoFillTextForNonCustom)
+                        .accessibilityHint(pageState.choice == .custom ? "Editable" : "Select Custom to edit")
+
+                        if let warning = pageState.customWarning, pageState.choice == .custom {
+                            Text(warning)
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                        }
+                    }
+
                     Spacer()
-                }
-                .animation(.easeInOut(duration: 0.2), value: pageState.choice == .custom)
-                
-                // Current Page Only option
-                RadioRow(title: "Current Page Only", isOn: pageState.choice == .current) {
-                    pageState.choice = .current
                 }
             }
         }
+        // Initialize field on appear
+        .onAppear {
+            if pageState.customInput.isEmpty {
+                pageState.customInput = pageCount > 0 ? "1-\(pageCount)" : ""
+            }
+        }
+        // Parse when user edits in Custom mode
+        .onChange(of: pageState.customInput) { _, _ in
+            if pageState.choice == .custom {
+                handleCustomInputChange()
+            }
+        }
     }
-    
+
     private func handleCustomInputChange() {
         pageState.customDebounce?.cancel()
         let work = DispatchWorkItem {
             parseCustomPages(keepFocus: true)
-            // Force a preview rebuild after parsing
             DispatchQueue.main.async {
-                // This will trigger the rebuild through the onChange observer
                 pageState.customPages = pageState.customPages
             }
         }
         pageState.customDebounce = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.30, execute: work)
     }
-    
+
     private func parseCustomPages(keepFocus: Bool = false) {
         pageState.customWarning = nil
         guard pageCount > 0 else {
             pageState.customPages = []
             return
         }
-        
+
         let cleaned = pageState.customInput.replacingOccurrences(of: " ", with: "")
         if cleaned.isEmpty {
             pageState.customPages = []
             return
         }
-        
+
         var pages = Set<Int>()
-        
+
         for token in cleaned.split(separator: ",") {
             if token.contains("-") {
                 let parts = token.split(separator: "-")
@@ -755,9 +801,9 @@ struct PagesFormSection: View {
                 pageState.customWarning = "Invalid format"
             }
         }
-        
+
         pageState.customPages = pages.sorted()
-        
+
         if keepFocus {
             DispatchQueue.main.async {
                 customFieldFocused = true

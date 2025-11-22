@@ -88,6 +88,11 @@ final class UnifiedBoardCanvasController: UIViewController {
         print("UnifiedBoardCanvasController viewDidAppear - actual bounds: \(view.bounds)")
     }
 
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        print("🔧 [CanvasController] layoutSubviews bounds=\(view.bounds.size)")
+    }
+
     deinit {
         for o in interactionObservers { NotificationCenter.default.removeObserver(o) }
     }
@@ -698,6 +703,7 @@ extension UnifiedBoardCanvasController {
         marginDrawingCanvas?.tool = tool
         previousTool = tool
         setCanvasMode(.drawing)
+        print("🖊️ setInk \(ink) width=\(width)")
     }
 
     func setEraser() {

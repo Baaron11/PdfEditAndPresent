@@ -8,10 +8,12 @@ struct ContinuousScrollPDFViewWithTracking: View {
     @ObservedObject var editorData: EditorData
     @Binding var visiblePageIndex: Int
     @Binding var canvasMode: CanvasMode
+    @Binding var marginSettings: MarginSettings
 
     // Callbacks for canvas events
-    var onModeChanged: ((CanvasMode) -> Void)?
+    var onCanvasModeChanged: ((CanvasMode) -> Void)?
     var onPaperKitItemAdded: (() -> Void)?
+    var onDrawingChanged: ((Int, PKDrawing?, PKDrawing?) -> Void)?
     var onToolAPIReady: ((UnifiedBoardToolAPI) -> Void)?
 
     @State private var pageImages: [Int: UIImage] = [:]
@@ -146,57 +148,60 @@ struct ContinuousScrollPDFViewWithTracking: View {
     // MARK: - Page Cell
     @ViewBuilder
     private func pageView(for pageIndex: Int, availableWidth: CGFloat) -> some View {
-        VStack(spacing: 0) {
-            if let image = pageImages[pageIndex] {
-                // Calculate actual display dimensions
-                let imageSize = CGSize(width: image.size.width / 2.0, height: image.size.height / 2.0)
-                let aspectRatio = imageSize.height / imageSize.width
-                let displayWidth = imageSize.width * pdfManager.zoomLevel
-                let displayHeight = displayWidth * aspectRatio
+        ZStack(alignment: .topLeading) {
+            // ========== PDF IMAGE LAYER ==========
+            VStack(spacing: 0) {
+                if let image = pageImages[pageIndex] {
+                    // Calculate actual display dimensions
+                    let imageSize = CGSize(width: image.size.width / 2.0, height: image.size.height / 2.0)
+                    let aspectRatio = imageSize.height / imageSize.width
+                    let displayWidth = imageSize.width * pdfManager.zoomLevel
+                    let displayHeight = displayWidth * aspectRatio
 
-                ZStack {
                     Image(uiImage: image)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
                         .frame(width: displayWidth, height: displayHeight)
                         .clipped()
+                        .background(Color.white)
+                        .cornerRadius(4)
+                        .shadow(radius: 2)
+                } else {
+                    // Placeholder
+                    let defaultAspectRatio: CGFloat = 11.0 / 8.5
+                    let displayWidth = availableWidth * pdfManager.zoomLevel
+                    let displayHeight = displayWidth * defaultAspectRatio
 
-                    // Embedded canvas for this page
-                    UnifiedBoardCanvasView(
-                        editorData: editorData,
-                        pdfManager: pdfManager,
-                        canvasMode: $canvasMode,
-                        canvasSize: pdfManager.effectiveSize(for: pageIndex),
-                        currentPageIndex: pageIndex,
-                        onModeChanged: onModeChanged,
-                        onPaperKitItemAdded: onPaperKitItemAdded,
-                        onToolAPIReady: pageIndex == visiblePageIndex ? onToolAPIReady : nil
-                    )
-                    .frame(width: displayWidth, height: displayHeight)
-                    .allowsHitTesting(canvasMode == .drawing || canvasMode == .selecting)
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color.white)
+                        .shadow(radius: 2)
+                        .overlay(ProgressView())
+                        .frame(width: displayWidth, height: displayHeight)
                 }
-                .frame(width: displayWidth, height: displayHeight)
-                .background(Color.white)
-                .cornerRadius(4)
-                .shadow(radius: 2)
-            } else {
-                // Placeholder - use default aspect ratio (Letter: 8.5x11)
-                let defaultAspectRatio: CGFloat = 11.0 / 8.5
-                let displayWidth = availableWidth * pdfManager.zoomLevel
-                let displayHeight = displayWidth * defaultAspectRatio
+            }
+            .onAppear {
+                if pageImages[pageIndex] == nil {
+                    renderPage(at: pageIndex)
+                }
+            }
 
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(Color.white)
-                    .shadow(radius: 2)
-                    .overlay(ProgressView())
-                    .frame(width: displayWidth, height: displayHeight)
-            }
-        }
-        // ✅ REMOVED: .frame(maxWidth: .infinity) - this prevented horizontal scrolling
-        .onAppear {
-            if pageImages[pageIndex] == nil {
-                renderPage(at: pageIndex)
-            }
+            // ========== CANVAS OVERLAY (Per-Page) ==========
+            UnifiedBoardCanvasView(
+                editorData: editorData,
+                pdfManager: pdfManager,
+                canvasMode: $canvasMode,
+                marginSettings: $marginSettings,
+                canvasSize: pdfManager.effectiveSize(for: pageIndex),
+                currentPageIndex: pageIndex,
+                onModeChanged: onCanvasModeChanged,
+                onPaperKitItemAdded: onPaperKitItemAdded,
+                onDrawingChanged: onDrawingChanged,
+                onToolAPIReady: onToolAPIReady,
+                zoomLevel: pdfManager.zoomLevel,
+                pageRotation: pdfManager.rotationForPage(pageIndex)
+            )
+            .id("canvas-\(pageIndex)")
+            .allowsHitTesting(canvasMode == .drawing || canvasMode == .selecting)
         }
     }
 

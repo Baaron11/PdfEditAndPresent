@@ -127,7 +127,10 @@ struct PDFEditorScreenRefactored: View {
 
     // Drawing toolbar state
     @State private var showDrawingToolbar = false
-    @State private var toolAPI: UnifiedBoardToolAPI?
+    @State private var selectedBrush: BrushConfiguration? = nil
+    @StateObject private var brushManager = BrushManager()
+    @StateObject private var drawingVM = DrawingViewModel()
+    @State private var drawingCanvasAdapter: DrawingCanvasAPI?
 
     // Change File Size sheet
     @State private var showChangeFileSizeSheet = false
@@ -518,7 +521,10 @@ struct PDFEditorScreenRefactored: View {
 
                 modeToggleView
 
-                Button(action: { showDrawingToolbar.toggle() }) {
+                Button(action: {
+                    showDrawingToolbar.toggle()
+                    print("🎨 Toggled DrawingToolbar: \(showDrawingToolbar)")
+                }) {
                     Image(systemName: "paintbrush")
                         .font(.system(size: 13))
                         .frame(width: ToolbarMetrics.button, height: ToolbarMetrics.button)
@@ -879,7 +885,10 @@ struct PDFEditorScreenRefactored: View {
                         pdfViewModel.hasUnsavedChanges = true
                     },
                     onToolAPIReady: { api in
-                        self.toolAPI = api
+                        print("🧩 Tool API ready")
+                        let adapter = UnifiedBoardCanvasAdapter(api: api)
+                        self.drawingCanvasAdapter = adapter
+                        drawingVM.attachCanvas(adapter)
                     }
                 )
                 .id(canvasKey)
@@ -888,17 +897,21 @@ struct PDFEditorScreenRefactored: View {
                     panGestureOverlay
                 }
 
-                if showDrawingToolbar, let api = toolAPI {
-                    DrawingToolbarView(
-                        setInk: { ink, color, width in api.setInkTool(ink, color, width) },
-                        setEraser: { api.setEraser() },
-                        beginLasso: { api.beginLasso() },
-                        undo: { api.undo() },
-                        redo: { api.redo() }
+                if showDrawingToolbar, let _ = drawingCanvasAdapter {
+                    DrawingToolbar(
+                        selectedBrush: $selectedBrush,
+                        drawingViewModel: drawingVM,
+                        brushManager: brushManager,
+                        onClear: {
+                            print("🧹 Clear current page drawing")
+                            let idx = pdfManager.currentPageIndex
+                            pdfManager.setMarginDrawing(PKDrawing(), for: idx)
+                        }
                     )
-                    .padding()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 10)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
         }
@@ -907,6 +920,11 @@ struct PDFEditorScreenRefactored: View {
             viewportSize = size
         }
         .gesture(singlePageZoomGesture)
+        .onChange(of: canvasMode) { _, newMode in
+            if newMode == .selecting {
+                showDrawingToolbar = false
+            }
+        }
     }
     
     private var panGestureOverlay: some View {

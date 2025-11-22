@@ -114,6 +114,7 @@ final class UnifiedBoardCanvasController: UIViewController {
             print("🎯 pdfCanvas isUserInteractionEnabled=\(pdfCanvas.isUserInteractionEnabled)")
         }
         print("🎯 containerView frame=\(containerView.frame) bounds=\(containerView.bounds)")
+        debugCanvasLayout(label: "viewDidAppear")
     }
 
     override func viewDidLayoutSubviews() {
@@ -165,8 +166,19 @@ final class UnifiedBoardCanvasController: UIViewController {
             canvas.topAnchor.constraint(equalTo: host.topAnchor),
             canvas.bottomAnchor.constraint(equalTo: host.bottomAnchor)
         ])
-        canvas.backgroundColor = .clear
+        canvas.backgroundColor = UIColor.blue.withAlphaComponent(0.2)
         canvas.isOpaque = false
+
+        let debugLabel = UILabel()
+        debugLabel.text = "Canvas"
+        debugLabel.textColor = .blue
+        debugLabel.font = .systemFont(ofSize: 12, weight: .bold)
+        debugLabel.translatesAutoresizingMaskIntoConstraints = false
+        canvas.addSubview(debugLabel)
+        NSLayoutConstraint.activate([
+            debugLabel.topAnchor.constraint(equalTo: canvas.topAnchor, constant: 10),
+            debugLabel.leadingAnchor.constraint(equalTo: canvas.leadingAnchor, constant: 10)
+        ])
         canvas.isUserInteractionEnabled = false
         canvas.allowsFingerDrawing = true
         canvas.drawingPolicy = .anyInput
@@ -525,6 +537,17 @@ final class UnifiedBoardCanvasController: UIViewController {
 
         print("Mode interceptor setup complete")
         updateGestureRouting()
+    }
+
+    private func debugCanvasLayout(label: String = "") {
+        let labelStr = label.isEmpty ? "" : " [\(label)]"
+        print("🔍 Canvas Layout\(labelStr)")
+        print("   PDF Canvas frame: \(pdfDrawingCanvas?.frame ?? .zero)")
+        print("   PDF Canvas bounds: \(pdfDrawingCanvas?.bounds ?? .zero)")
+        print("   Container frame: \(containerView.frame)")
+        print("   Container bounds: \(containerView.bounds)")
+        print("   View frame: \(view.frame)")
+        print("   View bounds: \(view.bounds)")
     }
 
     private func setupPaperKitDropInteraction(on view: UIView) {

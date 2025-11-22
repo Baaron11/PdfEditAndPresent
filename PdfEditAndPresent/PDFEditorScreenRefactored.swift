@@ -132,6 +132,9 @@ struct PDFEditorScreenRefactored: View {
     @StateObject private var drawingVM = DrawingViewModel()
     @State private var drawingCanvasAdapter: DrawingCanvasAPI?
 
+    // Margin settings for canvas
+    @State private var marginSettings: MarginSettings = MarginSettings()
+
     // Change File Size sheet
     @State private var showChangeFileSizeSheet = false
 
@@ -168,6 +171,8 @@ struct PDFEditorScreenRefactored: View {
                 let pageSize = pdfManager.getCurrentPageSize()
                 editorData.initializeController(CGRect(origin: .zero, size: pageSize))
 
+                marginSettings = pdfManager.getMarginSettings(for: 0)
+
                 withAnimation {
                     isInitialized = true
                 }
@@ -188,6 +193,7 @@ struct PDFEditorScreenRefactored: View {
         }
         .onChange(of: visiblePageIndex) { _, newIndex in
             pdfManager.editorCurrentPage = newIndex + 1
+            marginSettings = pdfManager.getMarginSettings(for: newIndex)
             // Reset the controller bounds for the new page so canvas frames are correct
             let size = pdfManager.effectiveSize(for: newIndex)
             editorData.clearCanvas()
@@ -851,6 +857,7 @@ struct PDFEditorScreenRefactored: View {
                 editorData: editorData,
                 pdfManager: pdfManager,
                 canvasMode: $canvasMode,
+                marginSettings: $marginSettings,
                 canvasSize: pdfManager.effectiveSize(for: visiblePageIndex),
                 currentPageIndex: visiblePageIndex,
                 onModeChanged: { newMode in

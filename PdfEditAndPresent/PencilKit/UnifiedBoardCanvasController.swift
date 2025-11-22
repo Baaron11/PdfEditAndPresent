@@ -81,6 +81,7 @@ final class UnifiedBoardCanvasController: UIViewController {
         view.isOpaque = false
         setupContainerView()
         setupModeInterceptor()
+        updateCanvasInteractionState()
         print("Setup complete")
     }
 
@@ -166,7 +167,7 @@ final class UnifiedBoardCanvasController: UIViewController {
         ])
         canvas.backgroundColor = .clear
         canvas.isOpaque = false
-        canvas.isUserInteractionEnabled = true
+        canvas.isUserInteractionEnabled = false
         canvas.allowsFingerDrawing = true
         canvas.drawingPolicy = .anyInput
 
@@ -183,6 +184,20 @@ final class UnifiedBoardCanvasController: UIViewController {
             v = cur.superview
         }
         return nil
+    }
+
+    private func updateCanvasInteractionState() {
+        let shouldInteract = (canvasMode == .drawing)
+
+        print("🎯 Canvas interaction: \(shouldInteract ? "ENABLED" : "DISABLED") (mode=\(canvasMode))")
+
+        pdfDrawingCanvas?.isUserInteractionEnabled = shouldInteract
+        marginDrawingCanvas?.isUserInteractionEnabled = shouldInteract
+
+        if !shouldInteract {
+            pdfDrawingCanvas?.resignFirstResponder()
+            marginDrawingCanvas?.resignFirstResponder()
+        }
     }
 
     /// Enable or disable drawing on PKCanvasViews
@@ -308,6 +323,7 @@ final class UnifiedBoardCanvasController: UIViewController {
     /// Set canvas mode (drawing, selecting, idle)
     func setCanvasMode(_ mode: CanvasMode) {
         self.canvasMode = mode
+        updateCanvasInteractionState()
         onModeChanged?(mode)
         onCanvasModeChanged?(mode)
         if mode == .selecting {
@@ -749,13 +765,20 @@ extension UnifiedBoardCanvasController: UIDropInteractionDelegate {
 extension UnifiedBoardCanvasController: UIGestureRecognizerDelegate {
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        if let edgePan = otherGestureRecognizer as? UIScreenEdgePanGestureRecognizer {
+            print("🎯 Edge pan detected - allowing simultaneous recognition")
+            return true
+        }
         return true
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                            shouldReceive touch: UITouch) -> Bool {
-        // Don't intercept touches on PKCanvasView - let PencilKit handle them
-        if touch.view is PKCanvasView { return false }
+        if touch.view is PKCanvasView {
+            let shouldReceive = (canvasMode == .drawing)
+            print("🎯 Canvas touch shouldReceive: \(shouldReceive)")
+            return shouldReceive
+        }
         return true
     }
 }

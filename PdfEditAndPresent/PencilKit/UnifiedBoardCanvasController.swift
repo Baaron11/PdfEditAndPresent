@@ -227,6 +227,13 @@ final class UnifiedBoardCanvasController: UIViewController {
         marginDrawingCanvas = marginCanvas
         pencilKitToolPicker = toolPicker
 
+        // Enable multi-touch and finger drawing for both canvases
+        pdfCanvas.isMultipleTouchEnabled = true
+        marginCanvas.isMultipleTouchEnabled = true
+        pdfCanvas.allowsFingerDrawing = true
+        marginCanvas.allowsFingerDrawing = true
+        pdfCanvas.becomeFirstResponder()
+
         // Initialize lasso controller with the active canvas
         lassoController = PKLassoSelectionController(canvasView: pdfCanvas)
 
@@ -236,7 +243,9 @@ final class UnifiedBoardCanvasController: UIViewController {
         marginCanvas.tool = defaultTool
         previousTool = defaultTool
 
-        // Bring mode interceptor to front
+        // Bring canvases and interceptor to front in correct order
+        containerView.bringSubviewToFront(pdfCanvas)
+        containerView.bringSubviewToFront(marginCanvas)
         containerView.bringSubviewToFront(modeInterceptor)
 
         // Apply initial transforms
@@ -351,8 +360,14 @@ final class UnifiedBoardCanvasController: UIViewController {
         // marginDrawingCanvas stays at identity (canvas space)
         marginDrawingCanvas?.transform = .identity
 
+        // Ensure canvas frames match container bounds
+        pdfDrawingCanvas?.frame = containerView.bounds
+        marginDrawingCanvas?.frame = containerView.bounds
+
         // Update margin canvas visibility based on margins enabled
         marginDrawingCanvas?.isHidden = !marginSettings.isEnabled
+
+        print("🧩 Transforms applied, canvas bounds=\(containerView.bounds.size)")
     }
 
     // MARK: - Drawing Persistence
@@ -477,10 +492,12 @@ final class UnifiedBoardCanvasController: UIViewController {
         case .drawing:
             pdfDrawingCanvas?.isUserInteractionEnabled = true
             marginDrawingCanvas?.isUserInteractionEnabled = true
+            pdfDrawingCanvas?.becomeFirstResponder()
+            marginDrawingCanvas?.becomeFirstResponder()
             paperKitView?.isUserInteractionEnabled = false
             // Keep interceptor enabled to observe and flip to select
             modeInterceptor.isUserInteractionEnabled = true
-            print("Drawing mode: PencilKit enabled, interceptor watching")
+            print("🖊️ Drawing mode active — PKCanvasViews enabled")
 
         case .selecting:
             pdfDrawingCanvas?.isUserInteractionEnabled = false
@@ -690,7 +707,8 @@ extension UnifiedBoardCanvasController: UIGestureRecognizerDelegate {
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                            shouldReceive touch: UITouch) -> Bool {
-        // We only observe; don't cancel PK touches.
+        // Don't intercept touches on PKCanvasView - let PencilKit handle them
+        if touch.view is PKCanvasView { return false }
         return true
     }
 }

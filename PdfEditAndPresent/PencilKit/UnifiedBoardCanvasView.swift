@@ -139,33 +139,6 @@ struct UnifiedBoardCanvasView: UIViewControllerRepresentable {
     }
 }
 
-// MARK: - Convenience Initializer
-extension UnifiedBoardCanvasView {
-    /// Initialize with just EditorData and PDFManager, using default bindings
-    init(
-        editorData: EditorData,
-        pdfManager: PDFManager,
-        canvasMode: Binding<CanvasMode>,
-        canvasSize: CGSize,
-        currentPageIndex: Int,
-        onModeChanged: ((CanvasMode) -> Void)? = nil,
-        onPaperKitItemAdded: (() -> Void)? = nil,
-        onDrawingChanged: ((Int, PKDrawing?, PKDrawing?) -> Void)? = nil,
-        onToolAPIReady: ((UnifiedBoardToolAPI) -> Void)? = nil
-    ) {
-        self.editorData = editorData
-        self.pdfManager = pdfManager
-        self._canvasMode = canvasMode
-        self._marginSettings = .constant(pdfManager.currentPageMarginSettings)
-        self.canvasSize = canvasSize
-        self.currentPageIndex = currentPageIndex
-        self.onModeChanged = onModeChanged
-        self.onPaperKitItemAdded = onPaperKitItemAdded
-        self.onDrawingChanged = onDrawingChanged
-        self.onToolAPIReady = onToolAPIReady
-    }
-}
-
 // MARK: - Preview Modifier (for testing)
 extension UnifiedBoardCanvasView {
     static let defaultSize = CGSize(width: 595.28, height: 841.89) // A4

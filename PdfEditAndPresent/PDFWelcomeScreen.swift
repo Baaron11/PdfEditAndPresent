@@ -137,7 +137,7 @@ struct PDFWelcomeScreen: View {
                                             }
                                         }) {
                                             VStack(spacing: 8) {
-                                                Image(systemName: "doc.pdf")
+                                                Image(systemName: "text.document")
                                                     .font(.system(size: 24))
 
                                                 Text(recentFile.displayName.replacingOccurrences(of: ".pdf", with: ""))

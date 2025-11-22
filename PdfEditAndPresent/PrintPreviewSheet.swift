@@ -16,8 +16,7 @@ struct PrintPreviewSheet: View {
 
     // UI State
     @State private var printerButtonHost: UIView?
-    @FocusState private var customFieldFocused: Bool
-    
+
     private var pageCount: Int { pdfManager.pdfDocument?.pageCount ?? 0 }
     private var jobName: String { pdfManager.fileURL?.lastPathComponent ?? "Untitled.pdf" }
 
@@ -78,7 +77,6 @@ struct PrintPreviewSheet: View {
         PrintOptionsForm(
             pageState: pageState,
             printState: printState,
-            customFieldFocused: $customFieldFocused,
             pageCount: pageCount,
             currentEditorPage: pdfManager.editorCurrentPage
         )
@@ -630,7 +628,6 @@ struct PrintToolbarButton: View {
 struct PrintOptionsForm: View {
     @ObservedObject var pageState: PageSelectionState
     @ObservedObject var printState: PrintOptionsState
-    @FocusState.Binding var customFieldFocused: Bool
     let pageCount: Int
     let currentEditorPage: Int
 
@@ -638,7 +635,6 @@ struct PrintOptionsForm: View {
         Form {
             PagesFormSection(
                 pageState: pageState,
-                customFieldFocused: $customFieldFocused,
                 pageCount: pageCount,
                 currentEditorPage: currentEditorPage
             )
@@ -652,7 +648,6 @@ struct PrintOptionsForm: View {
 
 struct PagesFormSection: View {
     @ObservedObject var pageState: PageSelectionState
-    @FocusState.Binding var customFieldFocused: Bool
     let pageCount: Int
     let currentEditorPage: Int
 
@@ -698,33 +693,30 @@ struct PagesFormSection: View {
                             }
                         }
                         pageState.choice = .custom
-                        // Focus the field for immediate editing
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                            customFieldFocused = true
-                        }
+                        // UIKit TextField will be tapped by user to focus
                     }
                     .frame(minWidth: 100, alignment: .leading)
 
-                    // Text field is ALWAYS visible
+                    // Text field is ALWAYS visible - using UIKit-backed for focus stability
                     VStack(alignment: .leading, spacing: 4) {
-                        TextField("e.g. 1-3, 5, 7-9",
-                                  text: Binding(
-                                    get: {
-                                        pageState.choice == .custom ? pageState.customInput : autoFillTextForNonCustom
-                                    },
-                                    set: { newValue in
-                                        if pageState.choice == .custom {
-                                            pageState.customInput = newValue
-                                        }
+                        StableTextField(
+                            text: Binding(
+                                get: {
+                                    pageState.choice == .custom ? pageState.customInput : autoFillTextForNonCustom
+                                },
+                                set: { newValue in
+                                    if pageState.choice == .custom {
+                                        pageState.customInput = newValue
                                     }
-                                  )
+                                }
+                            ),
+                            placeholder: "e.g. 1-3, 5, 7-9",
+                            isEnabled: pageState.choice == .custom,
+                            onSubmit: {
+                                parseCustomPagesNow()
+                            }
                         )
-                        .textFieldStyle(.roundedBorder)
-                        .textInputAutocapitalization(.never)
-                        .keyboardType(.numbersAndPunctuation)
-                        .focused($customFieldFocused)
-                        .frame(maxWidth: 200)
-                        .disabled(pageState.choice != .custom)
+                        .frame(maxWidth: 200, minHeight: 34)
                         .accessibilityLabel("Page range")
                         .accessibilityValue(pageState.choice == .custom ? pageState.customInput : autoFillTextForNonCustom)
                         .accessibilityHint(pageState.choice == .custom ? "Editable" : "Select Custom to edit")
@@ -746,27 +738,25 @@ struct PagesFormSection: View {
                 pageState.customInput = pageCount > 0 ? "1-\(pageCount)" : ""
             }
         }
-        // Parse when user edits in Custom mode
+        // Parse when user edits in Custom mode - use longer debounce to avoid rebuilds while typing
         .onChange(of: pageState.customInput) { _, _ in
             if pageState.choice == .custom {
-                handleCustomInputChange()
+                debounceParseCustomPages()
             }
         }
     }
 
-    private func handleCustomInputChange() {
+    private func debounceParseCustomPages() {
         pageState.customDebounce?.cancel()
         let work = DispatchWorkItem {
-            parseCustomPages(keepFocus: true)
-            DispatchQueue.main.async {
-                pageState.customPages = pageState.customPages
-            }
+            parseCustomPagesNow()
         }
         pageState.customDebounce = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.30, execute: work)
+        // Use 0.5s debounce to avoid rebuilds while typing
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.50, execute: work)
     }
 
-    private func parseCustomPages(keepFocus: Bool = false) {
+    private func parseCustomPagesNow() {
         pageState.customWarning = nil
         guard pageCount > 0 else {
             pageState.customPages = []
@@ -803,12 +793,6 @@ struct PagesFormSection: View {
         }
 
         pageState.customPages = pages.sorted()
-
-        if keepFocus {
-            DispatchQueue.main.async {
-                customFieldFocused = true
-            }
-        }
     }
 }
 
@@ -1229,7 +1213,7 @@ private struct RadioRow: View {
     let title: String
     let isOn: Bool
     let action: () -> Void
-    
+
     var body: some View {
         Button(action: action) {
             HStack {
@@ -1241,6 +1225,63 @@ private struct RadioRow: View {
         }
         .buttonStyle(.plain)
         .contentShape(Rectangle())
+    }
+}
+
+// MARK: - Stable TextField (UIKit-backed)
+
+struct StableTextField: UIViewRepresentable {
+    @Binding var text: String
+    var placeholder: String
+    var isEnabled: Bool
+    var onSubmit: () -> Void
+
+    class Coordinator: NSObject, UITextFieldDelegate {
+        var parent: StableTextField
+
+        init(_ parent: StableTextField) {
+            self.parent = parent
+        }
+
+        @objc func editingChanged(_ textField: UITextField) {
+            parent.text = textField.text ?? ""
+        }
+
+        func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+            parent.onSubmit()
+            textField.resignFirstResponder()
+            return true
+        }
+    }
+
+    func makeUIView(context: Context) -> UITextField {
+        let textField = UITextField()
+        textField.placeholder = placeholder
+        textField.keyboardType = .numbersAndPunctuation
+        textField.autocorrectionType = .no
+        textField.autocapitalizationType = .none
+        textField.borderStyle = .roundedRect
+        textField.returnKeyType = .done
+        textField.delegate = context.coordinator
+        textField.addTarget(
+            context.coordinator,
+            action: #selector(Coordinator.editingChanged(_:)),
+            for: .editingChanged
+        )
+        return textField
+    }
+
+    func updateUIView(_ uiView: UITextField, context: Context) {
+        // Only update text if different to avoid caret jumps
+        if uiView.text != text {
+            uiView.text = text
+        }
+        uiView.isEnabled = isEnabled
+        uiView.textColor = isEnabled ? .label : .secondaryLabel
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
     }
 }
 

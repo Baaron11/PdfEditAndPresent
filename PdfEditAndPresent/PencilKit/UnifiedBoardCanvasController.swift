@@ -179,6 +179,11 @@ final class UnifiedBoardCanvasController: UIViewController {
             debugLabel.topAnchor.constraint(equalTo: canvas.topAnchor, constant: 10),
             debugLabel.leadingAnchor.constraint(equalTo: canvas.leadingAnchor, constant: 10)
         ])
+
+        // Prevent canvas from rendering outside its bounds
+        canvas.clipsToBounds = true
+        canvas.layer.masksToBounds = true
+
         canvas.isUserInteractionEnabled = false
         canvas.allowsFingerDrawing = true
         canvas.drawingPolicy = .anyInput

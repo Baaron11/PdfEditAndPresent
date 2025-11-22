@@ -868,6 +868,7 @@ struct PDFEditorScreenRefactored: View {
                 }
             )
             .id("continuous-\(visiblePageIndex)")
+            .padding(.trailing, 15) // Leave room for scrollbar
             .allowsHitTesting(canvasMode == .drawing || canvasMode == .selecting)
             .transition(.opacity)
             .zIndex(2)

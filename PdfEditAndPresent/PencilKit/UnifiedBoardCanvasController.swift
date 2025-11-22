@@ -358,14 +358,14 @@ final class UnifiedBoardCanvasController: UIViewController {
     private func applyTransforms() {
         guard let transformer = transformer else { return }
 
-        // Apply display transform to pdfHost (PaperKit)
+        // Apply display transform to pdfHost (PaperKit) only
         let displayTransform = transformer.displayTransform
         paperKitView?.transform = displayTransform
 
-        // Apply same transform to pdfDrawingCanvas
-        pdfDrawingCanvas?.transform = displayTransform
-
-        // marginDrawingCanvas stays at identity (canvas space)
+        // PKCanvasViews stay at identity transform - they fill the container
+        // Strokes are normalized/denormalized through the transformer when saving/loading
+        // Applying transforms to PKCanvasView breaks touch input coordinates
+        pdfDrawingCanvas?.transform = .identity
         marginDrawingCanvas?.transform = .identity
 
         // Note: Don't set frame manually - Auto Layout constraints handle sizing

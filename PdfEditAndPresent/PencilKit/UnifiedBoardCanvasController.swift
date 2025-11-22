@@ -75,6 +75,9 @@ final class UnifiedBoardCanvasController: UIViewController {
     // PDFManager reference for querying page sizes
     weak var pdfManager: PDFManager?
 
+    private var currentZoomLevel: CGFloat = 1.0
+    private var currentPageRotation: Int = 0
+
     // MARK: - Initialization
 
     override func viewDidLoad() {
@@ -763,6 +766,19 @@ final class UnifiedBoardCanvasController: UIViewController {
     /// Get the currently active drawing canvas
     var activeCanvas: PKCanvasView? {
         return activeDrawingLayer == .pdf ? pdfDrawingCanvas : marginDrawingCanvas
+    }
+
+    /// Update zoom and rotation from SwiftUI view
+    func updateZoomAndRotation(_ zoomLevel: CGFloat, _ rotation: Int) {
+        if zoomLevel != currentZoomLevel {
+            currentZoomLevel = zoomLevel
+            print("🔍 Canvas zoom updated: \(Int(zoomLevel * 100))%")
+        }
+
+        if rotation != currentPageRotation {
+            currentPageRotation = rotation
+            print("🔄 Canvas rotation updated: \(rotation)°")
+        }
     }
 }
 

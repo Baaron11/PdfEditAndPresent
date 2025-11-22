@@ -853,8 +853,10 @@ struct PDFEditorScreenRefactored: View {
                 
                 UnifiedBoardCanvasView(
                     editorData: editorData,
+                    pdfManager: pdfManager,
                     canvasMode: $canvasMode,
                     canvasSize: pdfManager.getCurrentPageSize(),
+                    currentPageIndex: pdfManager.currentPageIndex,
                     onModeChanged: { newMode in
                         print("📍 Canvas mode: \(newMode)")
                     },

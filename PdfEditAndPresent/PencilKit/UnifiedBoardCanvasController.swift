@@ -763,22 +763,35 @@ extension UnifiedBoardCanvasController: UIDropInteractionDelegate {
 
 // MARK: - UIGestureRecognizerDelegate
 extension UnifiedBoardCanvasController: UIGestureRecognizerDelegate {
+
+    /// Allow multiple gesture recognizers to work simultaneously
+    /// This is crucial for sidebar edge pan and drawing gestures
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
-        if let edgePan = otherGestureRecognizer as? UIScreenEdgePanGestureRecognizer {
+
+        // Allow sidebar edge pan gesture to work
+        if otherGestureRecognizer is UIScreenEdgePanGestureRecognizer {
             print("🎯 Edge pan detected - allowing simultaneous recognition")
             return true
         }
+
         return true
     }
 
+    /// Control which touches are intercepted based on current mode
+    /// This prevents canvas from blocking non-drawing interactions
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                            shouldReceive touch: UITouch) -> Bool {
+
+        // For canvas views, only intercept during drawing mode
         if touch.view is PKCanvasView {
             let shouldReceive = (canvasMode == .drawing)
-            print("🎯 Canvas touch shouldReceive: \(shouldReceive)")
+            if !shouldReceive {
+                print("🎯 Canvas touch blocked (not in drawing mode)")
+            }
             return shouldReceive
         }
+
         return true
     }
 }

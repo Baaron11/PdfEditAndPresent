@@ -925,24 +925,28 @@ struct PDFEditorScreenRefactored: View {
     }
     
     private var singlePagePDFContent: some View {
-        ZStack {
+        // ✅ Match continuous mode: use effectiveSize for explicit sizing
+        let effectiveSize = pdfManager.effectiveSize(for: pdfManager.currentPageIndex)
+
+        return ZStack {
             Color(UIColor.systemGray6)
                 .ignoresSafeArea()
 
             ZStack(alignment: .topLeading) {
-                // PDF background
+                // PDF background - explicitly sized to match canvas
                 PDFPageBackground(
                     pdfManager: pdfManager,
                     currentPageIndex: pdfManager.currentPageIndex
                 )
+                .frame(width: effectiveSize.width, height: effectiveSize.height)
 
-                // Canvas - fill the same space as the PDF
+                // Canvas - sized to match the effective page size (like continuous mode)
                 UnifiedBoardCanvasView(
                     editorData: editorData,
                     pdfManager: pdfManager,
                     canvasMode: $canvasMode,
                     marginSettings: $marginSettings,
-                    canvasSize: pdfManager.effectiveSize(for: pdfManager.currentPageIndex),
+                    canvasSize: effectiveSize,
                     currentPageIndex: pdfManager.currentPageIndex,
                     zoomLevel: pdfManager.zoomLevel,
                     pageRotation: pdfManager.rotationForPage(pdfManager.currentPageIndex),
@@ -968,8 +972,10 @@ struct PDFEditorScreenRefactored: View {
                         drawingVM.attachCanvas(adapter)
                     }
                 )
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .frame(width: effectiveSize.width, height: effectiveSize.height)
             }
+            // Explicitly size ZStack to match the page (like continuous mode)
+            .frame(width: effectiveSize.width, height: effectiveSize.height)
             // Zoom and pan applied to BOTH PDF and canvas together
             .scaleEffect(pdfManager.zoomLevel, anchor: .topLeading)
             .offset(panOffset)

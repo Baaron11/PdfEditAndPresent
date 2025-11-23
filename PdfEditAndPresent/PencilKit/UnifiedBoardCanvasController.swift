@@ -125,15 +125,25 @@ final class UnifiedBoardCanvasController: UIViewController {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        print("📍 [LAYOUT] viewDidLayoutSubviews() called")
+        print("📍 [LAYOUT]   containerView.bounds: \(containerView.bounds)")
+
         // At this point containerView has a real size - reapply transforms
-        print("🧩 viewDidLayoutSubviews container bounds=\(containerView.bounds)")
         applyTransforms()
 
-        // Debug prints for canvas frames
+        // Debug prints for canvas frames AFTER layout
         if let pdfCanvas = pdfDrawingCanvas {
-            print("🎯 pdfCanvas frame=\(pdfCanvas.frame) bounds=\(pdfCanvas.bounds)")
+            print("📍 [LAYOUT]   pdfDrawingCanvas ACTUAL frame: \(pdfCanvas.frame)")
+            print("📍 [LAYOUT]   pdfDrawingCanvas ACTUAL bounds: \(pdfCanvas.bounds)")
+            print("📍 [LAYOUT]   pdfDrawingCanvas transform: \(pdfCanvas.transform)")
         }
-        print("🎯 containerView frame=\(containerView.frame) bounds=\(containerView.bounds)")
+        if let marginCanvas = marginDrawingCanvas {
+            print("📍 [LAYOUT]   marginDrawingCanvas ACTUAL frame: \(marginCanvas.frame)")
+            print("📍 [LAYOUT]   marginDrawingCanvas ACTUAL bounds: \(marginCanvas.bounds)")
+            print("📍 [LAYOUT]   marginDrawingCanvas transform: \(marginCanvas.transform)")
+        }
+        print("📍 [LAYOUT]   containerView ACTUAL frame: \(containerView.frame)")
+        print("📍 [LAYOUT]   view.bounds: \(view.bounds)")
     }
 
     deinit {
@@ -164,6 +174,11 @@ final class UnifiedBoardCanvasController: UIViewController {
     // MARK: - Canvas Setup Helpers
 
     private func pinCanvas(_ canvas: PKCanvasView, to host: UIView) {
+        let canvasName = canvas === pdfDrawingCanvas ? "pdfDrawingCanvas" : (canvas === marginDrawingCanvas ? "marginDrawingCanvas" : "unknownCanvas")
+        print("📐 [CONSTRAINT] pinCanvas() called for \(canvasName)")
+        print("📐 [CONSTRAINT]   Setting width constraint: \(canvasSize.width)")
+        print("📐 [CONSTRAINT]   Setting height constraint: \(canvasSize.height)")
+
         canvas.translatesAutoresizingMaskIntoConstraints = false
         host.addSubview(canvas)
 
@@ -189,7 +204,7 @@ final class UnifiedBoardCanvasController: UIViewController {
         canvas.clipsToBounds = true
         canvas.layer.masksToBounds = true
 
-        print("🎯 Canvas pinned to page size: \(canvasSize)")
+        print("📐 [CONSTRAINT]   Constraints activated for \(canvasName)")
     }
 
     private func hostScrollView(from view: UIView?) -> UIScrollView? {
@@ -228,9 +243,11 @@ final class UnifiedBoardCanvasController: UIViewController {
 
     /// Initialize canvas with size (PDF + margins)
     func initializeCanvas(size: CGSize) {
+        print("🎛️ [LIFECYCLE] initializeCanvas called with size: \(size.width) x \(size.height)")
+        print("🎛️ [LIFECYCLE]   Previous canvasSize was: \(canvasSize.width) x \(canvasSize.height)")
         canvasSize = size
         rebuildTransformer()
-        print("Canvas initialized: logical size=\(size)")
+        print("🎛️ [LIFECYCLE]   canvasSize now set to: \(canvasSize.width) x \(canvasSize.height)")
     }
 
     /// Setup PaperKit layer (pdfHost)
@@ -285,17 +302,25 @@ final class UnifiedBoardCanvasController: UIViewController {
 
     /// Setup dual PencilKit layers
     func setupPencilKit() {
+        print("🎛️ [LIFECYCLE] setupPencilKit() called")
+        print("🎛️ [LIFECYCLE]   Current canvasSize: \(canvasSize.width) x \(canvasSize.height)")
+        print("🎛️ [LIFECYCLE]   Current pageRotation: \(currentPageRotation)°")
+
         // Clean up old canvases
         pdfDrawingCanvas?.removeFromSuperview()
         marginDrawingCanvas?.removeFromSuperview()
 
         // Create PDF-anchored canvas (Layer 2)
         let pdfCanvas = PKCanvasView()
+        pdfDrawingCanvas = pdfCanvas  // Set reference before pinCanvas so name detection works
+        print("🎛️ [LIFECYCLE]   About to call pinCanvas() for pdfDrawingCanvas")
         pinCanvas(pdfCanvas, to: containerView)
         pdfCanvas.delegate = self
 
         // Create margin-anchored canvas (Layer 3)
         let marginCanvas = PKCanvasView()
+        marginDrawingCanvas = marginCanvas  // Set reference before pinCanvas
+        print("🎛️ [LIFECYCLE]   About to call pinCanvas() for marginDrawingCanvas")
         pinCanvas(marginCanvas, to: containerView)
         marginCanvas.delegate = self
 
@@ -305,8 +330,7 @@ final class UnifiedBoardCanvasController: UIViewController {
         toolPicker.addObserver(pdfCanvas)
         toolPicker.addObserver(marginCanvas)
 
-        pdfDrawingCanvas = pdfCanvas
-        marginDrawingCanvas = marginCanvas
+        // References already set above for name detection in pinCanvas
         pencilKitToolPicker = toolPicker
 
         // Enable multi-touch for both canvases
@@ -372,6 +396,10 @@ final class UnifiedBoardCanvasController: UIViewController {
 
     /// Set current page index and load drawings
     func setCurrentPage(_ pageIndex: Int) {
+        print("🎛️ [LIFECYCLE] setCurrentPage() called with pageIndex: \(pageIndex)")
+        print("🎛️ [LIFECYCLE]   Previous currentPageIndex: \(currentPageIndex)")
+        print("🎛️ [LIFECYCLE]   Current canvasSize: \(canvasSize.width) x \(canvasSize.height)")
+
         // Save current page drawings before switching
         saveCurrentPageDrawings()
 
@@ -380,13 +408,17 @@ final class UnifiedBoardCanvasController: UIViewController {
         // Get the actual page size from PDFManager for this specific page
         if let pdfManager = pdfManager {
             let pageSize = pdfManager.effectiveSize(for: pageIndex)
+            print("🎛️ [LIFECYCLE]   PDFManager returned size for page \(pageIndex + 1): \(pageSize.width) x \(pageSize.height)")
             canvasSize = pageSize
-            print("🎯 Updated canvasSize to match page \(pageIndex + 1): \(pageSize)")
+        } else {
+            print("🎛️ [LIFECYCLE]   WARNING: pdfManager is nil, keeping canvasSize: \(canvasSize)")
         }
 
         loadPageDrawings(for: pageIndex)
         rebuildTransformer()
+        print("🎛️ [LIFECYCLE]   About to call applyTransforms()")
         applyTransforms()
+        print("🎛️ [LIFECYCLE]   setCurrentPage() complete")
     }
 
     /// Get PDF-anchored drawing for a page (normalized)
@@ -442,7 +474,15 @@ final class UnifiedBoardCanvasController: UIViewController {
     }
 
     private func applyTransforms() {
-        guard let transformer = transformer else { return }
+        guard let transformer = transformer else {
+            print("🔄 [TRANSFORM] applyTransforms() called but transformer is nil")
+            return
+        }
+
+        print("🔄 [TRANSFORM] applyTransforms() called")
+        print("🔄 [TRANSFORM]   canvasSize: \(canvasSize.width) x \(canvasSize.height)")
+        print("🔄 [TRANSFORM]   currentPageRotation: \(currentPageRotation)°")
+        print("🔄 [TRANSFORM]   containerView.bounds: \(containerView.bounds)")
 
         // Apply display transform to pdfHost (PaperKit) only
         let displayTransform = transformer.displayTransform
@@ -453,8 +493,13 @@ final class UnifiedBoardCanvasController: UIViewController {
         let rotationRadians = CGFloat(currentPageRotation) * .pi / 180.0
         let rotationTransform = CGAffineTransform(rotationAngle: rotationRadians)
 
+        print("🔄 [TRANSFORM]   rotationRadians: \(rotationRadians)")
+        print("🔄 [TRANSFORM]   rotationTransform: \(rotationTransform)")
+
         pdfDrawingCanvas?.transform = rotationTransform
         marginDrawingCanvas?.transform = rotationTransform
+
+        print("🔄 [TRANSFORM]   Applied rotation transform to both canvases")
 
         // Note: Don't set frame manually - Auto Layout constraints handle sizing
         // This was causing zero-size frames when called before layout
@@ -462,7 +507,7 @@ final class UnifiedBoardCanvasController: UIViewController {
         // Update margin canvas visibility based on margins enabled
         marginDrawingCanvas?.isHidden = !marginSettings.isEnabled
 
-        print("🧩 Transforms applied, canvas bounds=\(containerView.bounds.size)")
+        print("🔄 [TRANSFORM]   Final containerView.bounds: \(containerView.bounds.size)")
     }
 
     private func reconfigureCanvasConstraints() {

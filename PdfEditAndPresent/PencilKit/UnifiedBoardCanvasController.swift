@@ -448,11 +448,13 @@ final class UnifiedBoardCanvasController: UIViewController {
         let displayTransform = transformer.displayTransform
         paperKitView?.transform = displayTransform
 
-        // PKCanvasViews stay at identity transform - they fill the container
-        // Strokes are normalized/denormalized through the transformer when saving/loading
-        // Applying transforms to PKCanvasView breaks touch input coordinates
-        pdfDrawingCanvas?.transform = .identity
-        marginDrawingCanvas?.transform = .identity
+        // Apply rotation transform to canvas views for continuous scroll mode
+        // This rotates the canvas to match the page rotation
+        let rotationRadians = CGFloat(currentPageRotation) * .pi / 180.0
+        let rotationTransform = CGAffineTransform(rotationAngle: rotationRadians)
+
+        pdfDrawingCanvas?.transform = rotationTransform
+        marginDrawingCanvas?.transform = rotationTransform
 
         // Note: Don't set frame manually - Auto Layout constraints handle sizing
         // This was causing zero-size frames when called before layout
@@ -778,6 +780,8 @@ final class UnifiedBoardCanvasController: UIViewController {
         if rotation != currentPageRotation {
             currentPageRotation = rotation
             print("🔄 Canvas rotation updated: \(rotation)°")
+            // Apply the rotation transform to canvas views
+            applyTransforms()
         }
     }
 }

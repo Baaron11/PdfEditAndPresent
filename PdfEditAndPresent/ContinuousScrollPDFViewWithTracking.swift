@@ -201,10 +201,6 @@ struct ContinuousScrollPDFViewWithTracking: View {
             )
             .id("canvas-\(pageIndex)")
             .allowsHitTesting(canvasMode == .drawing || canvasMode == .selecting)
-            .rotationEffect(
-                .degrees(Double(pdfManager.rotationForPage(pageIndex))),
-                anchor: .topLeading
-            )
         }
         // ✅ NO TRANSFORMS HERE - Parent VStack handles zoom
     }

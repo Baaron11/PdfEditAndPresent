@@ -22,6 +22,11 @@ struct UnifiedBoardCanvasView: UIViewControllerRepresentable {
     var onToolAPIReady: ((UnifiedBoardToolAPI) -> Void)?
 
     func makeUIViewController(context: Context) -> UnifiedBoardCanvasController {
+        print("🎛️ [SWIFTUI] makeUIViewController() - creating controller")
+        print("🎛️ [SWIFTUI]   canvasSize: \(canvasSize.width) x \(canvasSize.height)")
+        print("🎛️ [SWIFTUI]   pageRotation: \(pageRotation)°")
+        print("🎛️ [SWIFTUI]   currentPageIndex: \(currentPageIndex)")
+
         let controller = UnifiedBoardCanvasController()
 
         // Initialize canvas size
@@ -107,6 +112,7 @@ struct UnifiedBoardCanvasView: UIViewControllerRepresentable {
         // Update page if changed
         let controllerPageIndex = context.coordinator.currentPageIndex
         if controllerPageIndex != currentPageIndex {
+            print("🎛️ [SWIFTUI] updateUIViewController - page changed: \(controllerPageIndex) → \(currentPageIndex)")
             context.coordinator.currentPageIndex = currentPageIndex
 
             // Load drawings for new page
@@ -119,22 +125,34 @@ struct UnifiedBoardCanvasView: UIViewControllerRepresentable {
 
         // Update canvas size if changed
         if uiViewController.canvasSize != canvasSize {
+            print("🎛️ [SWIFTUI] updateUIViewController - canvasSize changed")
+            print("🎛️ [SWIFTUI]   Controller canvasSize: \(uiViewController.canvasSize.width) x \(uiViewController.canvasSize.height)")
+            print("🎛️ [SWIFTUI]   New canvasSize: \(canvasSize.width) x \(canvasSize.height)")
             uiViewController.initializeCanvas(size: canvasSize)
+        }
+
+        // Check rotation change
+        let oldRotation = context.coordinator.lastRotation
+        if oldRotation != pageRotation {
+            print("🔄 [SWIFTUI] updateUIViewController - pageRotation changed: \(oldRotation)° → \(pageRotation)°")
+            context.coordinator.lastRotation = pageRotation
         }
 
         uiViewController.updateZoomAndRotation(zoomLevel, pageRotation)
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(currentPageIndex: currentPageIndex)
+        Coordinator(currentPageIndex: currentPageIndex, lastRotation: pageRotation)
     }
 
     final class Coordinator {
         var controller: UnifiedBoardCanvasController?
         var currentPageIndex: Int
+        var lastRotation: Int
 
-        init(currentPageIndex: Int) {
+        init(currentPageIndex: Int, lastRotation: Int) {
             self.currentPageIndex = currentPageIndex
+            self.lastRotation = lastRotation
         }
     }
 }

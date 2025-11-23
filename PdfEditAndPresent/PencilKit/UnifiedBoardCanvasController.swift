@@ -488,26 +488,40 @@ final class UnifiedBoardCanvasController: UIViewController {
         let displayTransform = transformer.displayTransform
         paperKitView?.transform = displayTransform
 
-        // Apply rotation transform to canvas views for continuous scroll mode
-        // This rotates the canvas to match the page rotation
+        // Apply rotation transform to canvas views
         let rotationRadians = CGFloat(currentPageRotation) * .pi / 180.0
-        let rotationTransform = CGAffineTransform(rotationAngle: rotationRadians)
 
         print("🔄 [TRANSFORM]   rotationRadians: \(rotationRadians)")
-        print("🔄 [TRANSFORM]   rotationTransform: \(rotationTransform)")
 
-        pdfDrawingCanvas?.transform = rotationTransform
-        marginDrawingCanvas?.transform = rotationTransform
+        // Determine container size based on rotation
+        let isRotated90or270 = (currentPageRotation == 90 || currentPageRotation == 270)
+        let containerWidth = isRotated90or270 ? canvasSize.height : canvasSize.width
+        let containerHeight = isRotated90or270 ? canvasSize.width : canvasSize.height
+
+        print("🔄 [TRANSFORM]   isRotated90or270: \(isRotated90or270)")
+        print("🔄 [TRANSFORM]   containerSize: \(containerWidth) x \(containerHeight)")
+
+        // Update container bounds to match rotated page dimensions
+        containerView.bounds = CGRect(x: 0, y: 0, width: containerWidth, height: containerHeight)
+
+        // Apply rotation transform directly - no centering/translation offsets
+        // Rotation happens naturally around top-left corner
+        pdfDrawingCanvas?.transform = CGAffineTransform(rotationAngle: rotationRadians)
+        marginDrawingCanvas?.transform = CGAffineTransform(rotationAngle: rotationRadians)
+
+        // Set canvas frames at (0, 0) with canvas size - no offsets
+        let canvasFrame = CGRect(x: 0, y: 0, width: canvasSize.width, height: canvasSize.height)
+        pdfDrawingCanvas?.frame = canvasFrame
+        marginDrawingCanvas?.frame = canvasFrame
 
         print("🔄 [TRANSFORM]   Applied rotation transform to both canvases")
-
-        // Note: Don't set frame manually - Auto Layout constraints handle sizing
-        // This was causing zero-size frames when called before layout
+        print("🔄 [TRANSFORM]   Canvas frame: \(canvasFrame)")
 
         // Update margin canvas visibility based on margins enabled
         marginDrawingCanvas?.isHidden = !marginSettings.isEnabled
 
-        print("🔄 [TRANSFORM]   Final containerView.bounds: \(containerView.bounds.size)")
+        print("🔄 [TRANSFORM]   Final containerView.bounds: \(containerView.bounds)")
+        print("🔄 [TRANSFORM]   pdfDrawingCanvas.frame: \(pdfDrawingCanvas?.frame ?? .zero)")
     }
 
     private func reconfigureCanvasConstraints() {

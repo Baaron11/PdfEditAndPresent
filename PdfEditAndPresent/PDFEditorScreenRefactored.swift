@@ -972,7 +972,11 @@ struct PDFEditorScreenRefactored: View {
                 )
                 // ✅ KEY: Force recreation when page or rotation changes
                 .id("canvas-single-\(pdfManager.currentPageIndex)-\(pdfManager.rotationForPage(pdfManager.currentPageIndex))")
-                // ✅ Only apply zoom, not rotation (size already changed)
+                // ✅ Apply rotation BEFORE scale and offset
+                .rotationEffect(
+                    .degrees(Double(pdfManager.rotationForPage(pdfManager.currentPageIndex))),
+                    anchor: .topLeading
+                )
                 .scaleEffect(pdfManager.zoomLevel, anchor: .topLeading)
                 .offset(panOffset)
 

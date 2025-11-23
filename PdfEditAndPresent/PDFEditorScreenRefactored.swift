@@ -974,9 +974,9 @@ struct PDFEditorScreenRefactored: View {
                 )
                 .frame(width: effectiveSize.width, height: effectiveSize.height)
             }
+            // Explicitly size ZStack to match the page (like continuous mode)
+            .frame(width: effectiveSize.width, height: effectiveSize.height)
             // Zoom and pan applied to BOTH PDF and canvas together
-            // Note: Don't add explicit frame here - it constrains the parent container
-            // and causes the sidebar to be cut off in landscape mode
             .scaleEffect(pdfManager.zoomLevel, anchor: .topLeading)
             .offset(panOffset)
 

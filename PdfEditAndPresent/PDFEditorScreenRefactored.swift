@@ -937,19 +937,31 @@ struct PDFEditorScreenRefactored: View {
                 .scaleEffect(pdfManager.zoomLevel, anchor: .topLeading)
                 .offset(panOffset)
                 
+                // ✅ canvasSize already accounts for rotation via effectiveSize
+                // Do NOT apply rotation transform to canvas
                 UnifiedBoardCanvasView(
                     editorData: editorData,
                     pdfManager: pdfManager,
                     canvasMode: $canvasMode,
-                    marginSettings: $marginSettings,  // ← ADD THIS
-                    canvasSize: pdfManager.getCurrentPageSize(),
+                    marginSettings: $marginSettings,
+                    canvasSize: pdfManager.effectiveSize(for: pdfManager.currentPageIndex),
                     currentPageIndex: pdfManager.currentPageIndex,
+                    zoomLevel: pdfManager.zoomLevel,
+                    pageRotation: pdfManager.rotationForPage(pdfManager.currentPageIndex),
                     onModeChanged: { newMode in
                         print("📍 Canvas mode: \(newMode)")
                     },
                     onPaperKitItemAdded: {
                         print("📌 Item added to canvas - marking as unsaved")
                         pdfViewModel.hasUnsavedChanges = true
+                    },
+                    onDrawingChanged: { pageIndex, pdfDrawing, marginDrawing in
+                        if let pdfDrawing = pdfDrawing {
+                            pdfManager.setPdfAnchoredDrawing(pdfDrawing, for: pageIndex)
+                        }
+                        if let marginDrawing = marginDrawing {
+                            pdfManager.setMarginDrawing(marginDrawing, for: pageIndex)
+                        }
                     },
                     onToolAPIReady: { api in
                         print("🧩 Tool API ready")
@@ -958,7 +970,11 @@ struct PDFEditorScreenRefactored: View {
                         drawingVM.attachCanvas(adapter)
                     }
                 )
-                .id(canvasKey)
+                // ✅ KEY: Force recreation when page or rotation changes
+                .id("canvas-single-\(pdfManager.currentPageIndex)-\(pdfManager.rotationForPage(pdfManager.currentPageIndex))")
+                // ✅ Only apply zoom, not rotation (size already changed)
+                .scaleEffect(pdfManager.zoomLevel, anchor: .topLeading)
+                .offset(panOffset)
 
                 if canvasMode == .selecting {
                     panGestureOverlay
@@ -993,6 +1009,89 @@ struct PDFEditorScreenRefactored: View {
             }
         }
     }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     
     private var panGestureOverlay: some View {
         Color.clear

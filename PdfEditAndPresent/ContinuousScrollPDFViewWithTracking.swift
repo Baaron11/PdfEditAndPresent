@@ -40,6 +40,7 @@ struct ContinuousScrollPDFViewWithTracking: View {
                                 minHeight: outerGeo.size.height
                             )
                         
+                        // ✅ Apply zoom to the VStack, not individual pages
                         VStack(spacing: 8) {
                             ForEach(0..<pdfManager.pageCount, id: \.self) { pageIndex in
                                 pageView(for: pageIndex, availableWidth: outerGeo.size.width - 16)
@@ -55,8 +56,8 @@ struct ContinuousScrollPDFViewWithTracking: View {
                             }
                         }
                         .padding(8)
-                        // ✅ REMOVED: .background(Color.gray.opacity(0.1)) - moved to ZStack
-                        .frame(minWidth: outerGeo.size.width * pdfManager.zoomLevel)
+                        // ✅ NO minWidth here - let VStack size naturally
+                        .scaleEffect(pdfManager.zoomLevel, anchor: .topLeading)
                         .onPreferenceChange(PageFramesPreferenceKey.self) { frames in
                             pageFrames = frames
                             updateVisiblePageFromScroll(viewportHeight: outerGeo.size.height)
@@ -125,7 +126,6 @@ struct ContinuousScrollPDFViewWithTracking: View {
                     }
                 }
                 .coordinateSpace(name: "scrollView")
-                // ✅ NEW: Add grey background to ScrollView itself
                 .background(Color(UIColor.systemGray6))
                 .onChange(of: visiblePageIndex) { _, newIndex in
                     guard !isReRendering, !isInternalVisibleUpdate else { return }
@@ -152,10 +152,9 @@ struct ContinuousScrollPDFViewWithTracking: View {
             // ========== PDF IMAGE LAYER ==========
             VStack(spacing: 0) {
                 if let image = pageImages[pageIndex] {
-                    // Calculate actual display dimensions
                     let imageSize = CGSize(width: image.size.width / 2.0, height: image.size.height / 2.0)
                     let aspectRatio = imageSize.height / imageSize.width
-                    let displayWidth = imageSize.width * pdfManager.zoomLevel
+                    let displayWidth = imageSize.width
                     let displayHeight = displayWidth * aspectRatio
 
                     Image(uiImage: image)
@@ -169,7 +168,7 @@ struct ContinuousScrollPDFViewWithTracking: View {
                 } else {
                     // Placeholder
                     let defaultAspectRatio: CGFloat = 11.0 / 8.5
-                    let displayWidth = availableWidth * pdfManager.zoomLevel
+                    let displayWidth = availableWidth
                     let displayHeight = displayWidth * defaultAspectRatio
 
                     RoundedRectangle(cornerRadius: 4)
@@ -193,16 +192,17 @@ struct ContinuousScrollPDFViewWithTracking: View {
                 marginSettings: $marginSettings,
                 canvasSize: pdfManager.effectiveSize(for: pageIndex),
                 currentPageIndex: pageIndex,
+                zoomLevel: pdfManager.zoomLevel,
+                pageRotation: pdfManager.rotationForPage(pageIndex),
                 onModeChanged: onCanvasModeChanged,
                 onPaperKitItemAdded: onPaperKitItemAdded,
                 onDrawingChanged: onDrawingChanged,
-                onToolAPIReady: onToolAPIReady,
-                zoomLevel: pdfManager.zoomLevel,
-                pageRotation: pdfManager.rotationForPage(pageIndex)
+                onToolAPIReady: onToolAPIReady
             )
             .id("canvas-\(pageIndex)")
             .allowsHitTesting(canvasMode == .drawing || canvasMode == .selecting)
         }
+        // ✅ NO TRANSFORMS HERE - Parent VStack handles zoom, rotation is handled by canvas internally
     }
 
     // MARK: - Margins Hash
@@ -314,13 +314,6 @@ struct ContinuousScrollPDFViewWithTracking: View {
             context.cgContext.stroke(scaledPDFRect)
         }
     }
-    
-    // (In case continuous scroll needs different coordinate handling)
-//    private func handleFormToolTapContinuous(at screenLocation: CGPoint) {
-//        // For now, use the same coordinate transformation as single page
-//        // The zoom and pan should work the same way
-//        handleFormToolTap(at: screenLocation)
-//    }
 
     // MARK: - Visible Page Tracking
     private func updateVisiblePageFromScroll(viewportHeight: CGFloat) {

@@ -148,8 +148,9 @@ struct ContinuousScrollPDFViewWithTracking: View {
     // MARK: - Page Cell
     @ViewBuilder
     private func pageView(for pageIndex: Int, availableWidth: CGFloat) -> some View {
+        let effectiveSize = pdfManager.effectiveSize(for: pageIndex)
+
         ZStack(alignment: .topLeading) {
-            // ========== PDF IMAGE LAYER ==========
             VStack(spacing: 0) {
                 if let image = pageImages[pageIndex] {
                     let imageSize = CGSize(width: image.size.width / 2.0, height: image.size.height / 2.0)
@@ -166,7 +167,6 @@ struct ContinuousScrollPDFViewWithTracking: View {
                         .cornerRadius(4)
                         .shadow(radius: 2)
                 } else {
-                    // Placeholder
                     let defaultAspectRatio: CGFloat = 11.0 / 8.5
                     let displayWidth = availableWidth
                     let displayHeight = displayWidth * defaultAspectRatio
@@ -184,13 +184,13 @@ struct ContinuousScrollPDFViewWithTracking: View {
                 }
             }
 
-            // ========== CANVAS OVERLAY (Per-Page) ==========
+            // Canvas - sized to match the effective page size
             UnifiedBoardCanvasView(
                 editorData: editorData,
                 pdfManager: pdfManager,
                 canvasMode: $canvasMode,
                 marginSettings: $marginSettings,
-                canvasSize: pdfManager.effectiveSize(for: pageIndex),
+                canvasSize: effectiveSize,
                 currentPageIndex: pageIndex,
                 zoomLevel: pdfManager.zoomLevel,
                 pageRotation: pdfManager.rotationForPage(pageIndex),
@@ -201,12 +201,10 @@ struct ContinuousScrollPDFViewWithTracking: View {
             )
             .id("canvas-\(pageIndex)")
             .allowsHitTesting(canvasMode == .drawing || canvasMode == .selecting)
-            .rotationEffect(
-                .degrees(Double(pdfManager.rotationForPage(pageIndex))),
-                anchor: .topLeading
-            )
+            .frame(width: effectiveSize.width, height: effectiveSize.height)
         }
-        // ✅ NO TRANSFORMS HERE - Parent VStack handles zoom
+        // Explicitly size ZStack to match the page
+        .frame(width: effectiveSize.width, height: effectiveSize.height)
     }
 
     // MARK: - Margins Hash

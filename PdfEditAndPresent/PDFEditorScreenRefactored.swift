@@ -928,17 +928,15 @@ struct PDFEditorScreenRefactored: View {
         ZStack {
             Color(UIColor.systemGray6)
                 .ignoresSafeArea()
-            
-            ZStack {
+
+            ZStack(alignment: .topLeading) {
+                // PDF background
                 PDFPageBackground(
                     pdfManager: pdfManager,
                     currentPageIndex: pdfManager.currentPageIndex
                 )
-                .scaleEffect(pdfManager.zoomLevel, anchor: .topLeading)
-                .offset(panOffset)
-                
-                // ✅ canvasSize already accounts for rotation via effectiveSize
-                // Do NOT apply rotation transform to canvas
+
+                // Canvas - fill the same space as the PDF
                 UnifiedBoardCanvasView(
                     editorData: editorData,
                     pdfManager: pdfManager,
@@ -970,31 +968,31 @@ struct PDFEditorScreenRefactored: View {
                         drawingVM.attachCanvas(adapter)
                     }
                 )
-                .id("canvas-single-\(pdfManager.currentPageIndex)-\(pdfManager.rotationForPage(pdfManager.currentPageIndex))")
-                // Only zoom, no rotation - the canvas handles rotation via pageRotation parameter
-                .scaleEffect(pdfManager.zoomLevel, anchor: .topLeading)
-                .offset(panOffset)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
+            // Zoom and pan applied to BOTH PDF and canvas together
+            .scaleEffect(pdfManager.zoomLevel, anchor: .topLeading)
+            .offset(panOffset)
 
-                if canvasMode == .selecting {
-                    panGestureOverlay
-                }
+            if canvasMode == .selecting {
+                panGestureOverlay
+            }
 
-                if showDrawingToolbar, let _ = drawingCanvasAdapter {
-                    DrawingToolbar(
-                        selectedBrush: $selectedBrush,
-                        drawingViewModel: drawingVM,
-                        brushManager: brushManager,
-                        onClear: {
-                            print("🧹 Clear current page drawing")
-                            let idx = pdfManager.currentPageIndex
-                            pdfManager.setMarginDrawing(PKDrawing(), for: idx)
-                        }
-                    )
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 10)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
+            if showDrawingToolbar, let _ = drawingCanvasAdapter {
+                DrawingToolbar(
+                    selectedBrush: $selectedBrush,
+                    drawingViewModel: drawingVM,
+                    brushManager: brushManager,
+                    onClear: {
+                        print("🧹 Clear current page drawing")
+                        let idx = pdfManager.currentPageIndex
+                        pdfManager.setMarginDrawing(PKDrawing(), for: idx)
+                    }
+                )
+                .padding(.horizontal, 12)
+                .padding(.bottom, 10)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
         .clipped()

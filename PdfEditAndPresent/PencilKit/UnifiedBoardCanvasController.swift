@@ -482,7 +482,7 @@ final class UnifiedBoardCanvasController: UIViewController {
         print("🔄 [TRANSFORM] applyTransforms() called")
         print("🔄 [TRANSFORM]   canvasSize: \(canvasSize.width) x \(canvasSize.height)")
         print("🔄 [TRANSFORM]   currentPageRotation: \(currentPageRotation)°")
-        print("🔄 [TRANSFORM]   containerView.bounds: \(containerView.bounds)")
+        print("🔄 [TRANSFORM]   view.bounds: \(view.bounds)")
 
         // Apply display transform to pdfHost (PaperKit) only
         let displayTransform = transformer.displayTransform
@@ -493,29 +493,45 @@ final class UnifiedBoardCanvasController: UIViewController {
 
         print("🔄 [TRANSFORM]   rotationRadians: \(rotationRadians)")
 
-        // Determine container size based on rotation
+        // Determine the effective canvas size based on rotation
         let isRotated90or270 = (currentPageRotation == 90 || currentPageRotation == 270)
-        let containerWidth = isRotated90or270 ? canvasSize.height : canvasSize.width
-        let containerHeight = isRotated90or270 ? canvasSize.width : canvasSize.height
+        let effectiveCanvasWidth = isRotated90or270 ? canvasSize.height : canvasSize.width
+        let effectiveCanvasHeight = isRotated90or270 ? canvasSize.width : canvasSize.height
 
         print("🔄 [TRANSFORM]   isRotated90or270: \(isRotated90or270)")
-        print("🔄 [TRANSFORM]   containerSize: \(containerWidth) x \(containerHeight)")
+        print("🔄 [TRANSFORM]   effectiveCanvasSize: \(effectiveCanvasWidth) x \(effectiveCanvasHeight)")
 
-        // Update container bounds to match rotated page dimensions
-        containerView.bounds = CGRect(x: 0, y: 0, width: containerWidth, height: containerHeight)
+        // Calculate scale to fit canvas within view bounds (for single page mode scaling)
+        let viewBounds = view.bounds
+        var fitScale: CGFloat = 1.0
+        if viewBounds.width > 0 && viewBounds.height > 0 && effectiveCanvasWidth > 0 && effectiveCanvasHeight > 0 {
+            fitScale = min(
+                viewBounds.width / effectiveCanvasWidth,
+                viewBounds.height / effectiveCanvasHeight
+            )
+        }
 
-        // Apply rotation transform directly - no centering/translation offsets
-        // Rotation happens naturally around top-left corner
-        pdfDrawingCanvas?.transform = CGAffineTransform(rotationAngle: rotationRadians)
-        marginDrawingCanvas?.transform = CGAffineTransform(rotationAngle: rotationRadians)
+        print("🔄 [TRANSFORM]   fitScale: \(fitScale)")
 
-        // Set canvas frames at (0, 0) with canvas size - no offsets
+        // Set container bounds to the view bounds (scaled size from SwiftUI)
+        containerView.bounds = viewBounds
+
+        // Build transform: scale to fit, then rotate
+        var canvasTransform = CGAffineTransform.identity
+        canvasTransform = canvasTransform.scaledBy(x: fitScale, y: fitScale)
+        canvasTransform = canvasTransform.rotated(by: rotationRadians)
+
+        pdfDrawingCanvas?.transform = canvasTransform
+        marginDrawingCanvas?.transform = canvasTransform
+
+        // Set canvas frames at (0, 0) with raw canvas size - transform will scale them
         let canvasFrame = CGRect(x: 0, y: 0, width: canvasSize.width, height: canvasSize.height)
         pdfDrawingCanvas?.frame = canvasFrame
         marginDrawingCanvas?.frame = canvasFrame
 
-        print("🔄 [TRANSFORM]   Applied rotation transform to both canvases")
+        print("🔄 [TRANSFORM]   Applied scale+rotation transform to both canvases")
         print("🔄 [TRANSFORM]   Canvas frame: \(canvasFrame)")
+        print("🔄 [TRANSFORM]   Canvas transform: \(canvasTransform)")
 
         // Update margin canvas visibility based on margins enabled
         marginDrawingCanvas?.isHidden = !marginSettings.isEnabled

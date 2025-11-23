@@ -925,74 +925,95 @@ struct PDFEditorScreenRefactored: View {
     }
     
     private var singlePagePDFContent: some View {
-        ZStack {
-            Color(UIColor.systemGray6)
-                .ignoresSafeArea()
+        GeometryReader { geometry in
+            let pdfSize = pdfManager.effectiveSize(for: pdfManager.currentPageIndex)
+            let containerSize = geometry.size
 
-            ZStack(alignment: .topLeading) {
-                // PDF background
-                PDFPageBackground(
-                    pdfManager: pdfManager,
-                    currentPageIndex: pdfManager.currentPageIndex
-                )
+            // Calculate scale to fit PDF in available space (matching .scaledToFit behavior)
+            let scaleToFit = min(
+                containerSize.width / pdfSize.width,
+                containerSize.height / pdfSize.height
+            )
 
-                // Canvas - fill the same space as the PDF
-                UnifiedBoardCanvasView(
-                    editorData: editorData,
-                    pdfManager: pdfManager,
-                    canvasMode: $canvasMode,
-                    marginSettings: $marginSettings,
-                    canvasSize: pdfManager.effectiveSize(for: pdfManager.currentPageIndex),
-                    currentPageIndex: pdfManager.currentPageIndex,
-                    zoomLevel: pdfManager.zoomLevel,
-                    pageRotation: pdfManager.rotationForPage(pdfManager.currentPageIndex),
-                    onModeChanged: { newMode in
-                        print("📍 Canvas mode: \(newMode)")
-                    },
-                    onPaperKitItemAdded: {
-                        print("📌 Item added to canvas - marking as unsaved")
-                        pdfViewModel.hasUnsavedChanges = true
-                    },
-                    onDrawingChanged: { pageIndex, pdfDrawing, marginDrawing in
-                        if let pdfDrawing = pdfDrawing {
-                            pdfManager.setPdfAnchoredDrawing(pdfDrawing, for: pageIndex)
+            // Calculate the scaled dimensions
+            let scaledWidth = pdfSize.width * scaleToFit
+            let scaledHeight = pdfSize.height * scaleToFit
+
+            // Calculate centering offsets
+            let xOffset = (containerSize.width - scaledWidth) / 2
+            let yOffset = (containerSize.height - scaledHeight) / 2
+
+            ZStack {
+                Color(UIColor.systemGray6)
+                    .ignoresSafeArea()
+
+                ZStack(alignment: .topLeading) {
+                    // PDF background - scaled to fit and centered
+                    PDFPageBackground(
+                        pdfManager: pdfManager,
+                        currentPageIndex: pdfManager.currentPageIndex
+                    )
+                    .frame(width: scaledWidth, height: scaledHeight)
+
+                    // Canvas - match the PDF's scaled size exactly
+                    UnifiedBoardCanvasView(
+                        editorData: editorData,
+                        pdfManager: pdfManager,
+                        canvasMode: $canvasMode,
+                        marginSettings: $marginSettings,
+                        canvasSize: pdfSize,
+                        currentPageIndex: pdfManager.currentPageIndex,
+                        zoomLevel: pdfManager.zoomLevel,
+                        pageRotation: pdfManager.rotationForPage(pdfManager.currentPageIndex),
+                        onModeChanged: { newMode in
+                            print("📍 Canvas mode: \(newMode)")
+                        },
+                        onPaperKitItemAdded: {
+                            print("📌 Item added to canvas - marking as unsaved")
+                            pdfViewModel.hasUnsavedChanges = true
+                        },
+                        onDrawingChanged: { pageIndex, pdfDrawing, marginDrawing in
+                            if let pdfDrawing = pdfDrawing {
+                                pdfManager.setPdfAnchoredDrawing(pdfDrawing, for: pageIndex)
+                            }
+                            if let marginDrawing = marginDrawing {
+                                pdfManager.setMarginDrawing(marginDrawing, for: pageIndex)
+                            }
+                        },
+                        onToolAPIReady: { api in
+                            print("🧩 Tool API ready")
+                            let adapter = UnifiedBoardCanvasAdapter(api: api)
+                            self.drawingCanvasAdapter = adapter
+                            drawingVM.attachCanvas(adapter)
                         }
-                        if let marginDrawing = marginDrawing {
-                            pdfManager.setMarginDrawing(marginDrawing, for: pageIndex)
+                    )
+                    .frame(width: scaledWidth, height: scaledHeight)
+                }
+                .offset(x: xOffset, y: yOffset)
+                // Zoom and pan applied to BOTH PDF and canvas together
+                .scaleEffect(pdfManager.zoomLevel, anchor: .topLeading)
+                .offset(panOffset)
+
+                if canvasMode == .selecting {
+                    panGestureOverlay
+                }
+
+                if showDrawingToolbar, let _ = drawingCanvasAdapter {
+                    DrawingToolbar(
+                        selectedBrush: $selectedBrush,
+                        drawingViewModel: drawingVM,
+                        brushManager: brushManager,
+                        onClear: {
+                            print("🧹 Clear current page drawing")
+                            let idx = pdfManager.currentPageIndex
+                            pdfManager.setMarginDrawing(PKDrawing(), for: idx)
                         }
-                    },
-                    onToolAPIReady: { api in
-                        print("🧩 Tool API ready")
-                        let adapter = UnifiedBoardCanvasAdapter(api: api)
-                        self.drawingCanvasAdapter = adapter
-                        drawingVM.attachCanvas(adapter)
-                    }
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            }
-            // Zoom and pan applied to BOTH PDF and canvas together
-            .scaleEffect(pdfManager.zoomLevel, anchor: .topLeading)
-            .offset(panOffset)
-
-            if canvasMode == .selecting {
-                panGestureOverlay
-            }
-
-            if showDrawingToolbar, let _ = drawingCanvasAdapter {
-                DrawingToolbar(
-                    selectedBrush: $selectedBrush,
-                    drawingViewModel: drawingVM,
-                    brushManager: brushManager,
-                    onClear: {
-                        print("🧹 Clear current page drawing")
-                        let idx = pdfManager.currentPageIndex
-                        pdfManager.setMarginDrawing(PKDrawing(), for: idx)
-                    }
-                )
-                .padding(.horizontal, 12)
-                .padding(.bottom, 10)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                    )
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 10)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
             }
         }
         .clipped()

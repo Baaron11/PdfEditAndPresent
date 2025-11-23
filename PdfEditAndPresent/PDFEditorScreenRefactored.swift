@@ -1001,6 +1001,7 @@ struct PDFEditorScreenRefactored: View {
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity) // Allow outer ZStack to fill space for sidebar
         .clipped()
         .onSizeChange { size in
             viewportSize = size

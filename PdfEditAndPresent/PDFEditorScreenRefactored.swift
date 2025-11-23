@@ -876,44 +876,6 @@ struct PDFEditorScreenRefactored: View {
                 .gesture(continuousZoomGesture)
             }
 
-<<<<<<< HEAD
-=======
-            // === Drawing canvas overlay for visible page ===
-            UnifiedBoardCanvasView(
-                editorData: editorData,
-                pdfManager: pdfManager,
-                canvasMode: $canvasMode,
-                marginSettings: $marginSettings,
-                canvasSize: pdfManager.effectiveSize(for: visiblePageIndex),
-                currentPageIndex: visiblePageIndex,
-                zoomLevel: pdfManager.zoomLevel,                    // ← MOVE UP (before callbacks)
-                pageRotation: pdfManager.rotationForPage(visiblePageIndex),  // ← MOVE UP (before callbacks)
-                onModeChanged: { newMode in
-                    print("📍 Continuous canvas mode -> \(newMode)")
-                },
-                onPaperKitItemAdded: {
-                    print("📌 Item added to continuous canvas")
-                    pdfViewModel.hasUnsavedChanges = true
-                },
-                onToolAPIReady: { api in
-                    print("🧩 [Continuous] Tool API ready")
-                    let adapter = UnifiedBoardCanvasAdapter(api: api)
-                    self.drawingCanvasAdapter = adapter
-                    drawingVM.attachCanvas(adapter)
-                }
-            )
-            .id("continuous-\(visiblePageIndex)")
-            .padding(.trailing, 15) // Leave room for scrollbar
-            .allowsHitTesting(canvasMode == .drawing || canvasMode == .selecting)
-            .transition(.opacity)
-            .zIndex(2)
-            .scaleEffect(pdfManager.zoomLevel, anchor: .topLeading)
-            .rotationEffect(
-                .degrees(Double(pdfManager.rotationForPage(visiblePageIndex))),
-                anchor: .topLeading
-            )
-
->>>>>>> a685725 (fixed general crashing issues)
             // === Drawing toolbar overlay ===
             if showDrawingToolbar {
                 DrawingToolbar(

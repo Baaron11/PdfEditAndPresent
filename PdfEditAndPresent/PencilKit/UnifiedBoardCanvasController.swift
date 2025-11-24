@@ -1050,6 +1050,7 @@ extension UnifiedBoardCanvasController {
         print("🖊️ setInkTool: \(ink.rawValue) width=\(width)")
         print("   pdfCanvas.tool: \(pdfDrawingCanvas?.tool != nil ? "✅ SET" : "❌ NIL")")
         print("   marginCanvas.tool: \(marginDrawingCanvas?.tool != nil ? "✅ SET" : "❌ NIL")")
+        print("   ✅ Stored in currentInkingTool for persistence")
         // NO setCanvasMode() call - toolbar callback controls mode
     }
 

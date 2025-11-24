@@ -83,7 +83,9 @@ final class DrawingViewModel: ObservableObject {
     // MARK: - Canvas Adapter Attachment
     func attachCanvas(_ canvas: DrawingCanvasAPI) {
         self.canvasAdapter = canvas
-        print("🧩 DrawingViewModel attached to canvas adapter")
+        print("🧩 [ATTACH] DrawingViewModel.attachCanvas() called")
+        print("   ✅ Canvas adapter is now ATTACHED")
+        print("   Adapter type: \(type(of: canvas))")
     }
 
     // MARK: - Canvas Attachment
@@ -382,13 +384,25 @@ final class DrawingViewModel: ObservableObject {
 
     // Brushes
     func selectBrush(_ brush: BrushConfiguration) {
+        // ✅ DIAGNOSTIC: Log the brush selection
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        brush.color.uiColor.getRed(&r, green: &g, blue: &b, alpha: &a)
+        print("🎨 [BRUSH] selectBrush called")
+        print("   Brush: \(brush.name)")
+        print("   Color: R=\(Int(r*255)), G=\(Int(g*255)), B=\(Int(b*255))")
+        print("   Type: \(brush.type.rawValue)")
+        print("   Width: \(brush.width)")
+        print("   canvasAdapter available: \(canvasAdapter != nil ? "✅ YES" : "❌ NO - NOT ATTACHED!")")
+
         currentColor = brush.color.color
         currentWidth = brush.width
 
         // Call through to canvas adapter if available
         if brush.type == .eraser {
+            print("   Calling: canvasAdapter?.setEraser()")
             canvasAdapter?.setEraser()
         } else {
+            print("   Calling: canvasAdapter?.setInk()")
             canvasAdapter?.setInk(ink: brush.type.inkType, color: brush.color.uiColor, width: brush.width)
         }
     }

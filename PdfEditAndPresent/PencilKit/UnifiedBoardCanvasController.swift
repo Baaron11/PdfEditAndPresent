@@ -504,18 +504,27 @@ final class UnifiedBoardCanvasController: UIViewController {
         // Update container bounds to match rotated page dimensions
         containerView.bounds = CGRect(x: 0, y: 0, width: containerWidth, height: containerHeight)
 
-        // Apply rotation transform directly - no centering/translation offsets
-        // Rotation happens naturally around top-left corner
+        // Use bounds and center instead of frame - these are stable with transforms
+        // Set canvas bounds to the original canvas size (before visual rotation)
+        let canvasBounds = CGRect(x: 0, y: 0, width: canvasSize.width, height: canvasSize.height)
+        pdfDrawingCanvas?.bounds = canvasBounds
+        marginDrawingCanvas?.bounds = canvasBounds
+
+        // Calculate the center position that will place the rotated canvas at origin
+        // After rotation, the visual frame has dimensions (containerWidth x containerHeight)
+        // We want the visual frame to start at (0, 0), so center should be at (containerWidth/2, containerHeight/2)
+        let centerX = containerWidth / 2
+        let centerY = containerHeight / 2
+        pdfDrawingCanvas?.center = CGPoint(x: centerX, y: centerY)
+        marginDrawingCanvas?.center = CGPoint(x: centerX, y: centerY)
+
+        // Now apply the rotation transform - this rotates around the center we just set
         pdfDrawingCanvas?.transform = CGAffineTransform(rotationAngle: rotationRadians)
         marginDrawingCanvas?.transform = CGAffineTransform(rotationAngle: rotationRadians)
 
-        // Set canvas frames at (0, 0) with canvas size - no offsets
-        let canvasFrame = CGRect(x: 0, y: 0, width: canvasSize.width, height: canvasSize.height)
-        pdfDrawingCanvas?.frame = canvasFrame
-        marginDrawingCanvas?.frame = canvasFrame
-
         print("🔄 [TRANSFORM]   Applied rotation transform to both canvases")
-        print("🔄 [TRANSFORM]   Canvas frame: \(canvasFrame)")
+        print("🔄 [TRANSFORM]   Canvas bounds: \(canvasBounds)")
+        print("🔄 [TRANSFORM]   Canvas center: (\(centerX), \(centerY))")
 
         // Update margin canvas visibility based on margins enabled
         marginDrawingCanvas?.isHidden = !marginSettings.isEnabled

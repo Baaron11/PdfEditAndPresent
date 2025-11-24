@@ -219,16 +219,21 @@ final class UnifiedBoardCanvasController: UIViewController {
     private func updateCanvasInteractionState() {
         let shouldInteract = (canvasMode == .drawing)
 
+        print("🎯 Canvas interaction: \(shouldInteract ? "ENABLED" : "DISABLED") (mode=\(canvasMode))")
+
         pdfDrawingCanvas?.isUserInteractionEnabled = shouldInteract
         marginDrawingCanvas?.isUserInteractionEnabled = shouldInteract
 
         if shouldInteract {
+            print("🎯 [FIRST RESPONDER] Making canvas first responder")
             pdfDrawingCanvas?.becomeFirstResponder()
             marginDrawingCanvas?.becomeFirstResponder()
+            print("🎯 [FIRST RESPONDER] pdfDrawingCanvas.isFirstResponder = \(pdfDrawingCanvas?.isFirstResponder ?? false)")
             if let toolPicker = pencilKitToolPicker, let canvas = pdfDrawingCanvas {
                 toolPicker.setVisible(false, forFirstResponder: canvas)
             }
         } else {
+            print("🎯 [FIRST RESPONDER] Resigning first responder (selecting mode)")
             pdfDrawingCanvas?.resignFirstResponder()
             marginDrawingCanvas?.resignFirstResponder()
         }
@@ -689,10 +694,12 @@ final class UnifiedBoardCanvasController: UIViewController {
     private func updateGestureRouting() {
         switch canvasMode {
         case .drawing:
-            print("🖊️ Drawing mode - enabling PKCanvasView")
+            print("🖊️ Drawing mode - enabling PKCanvasView for touches")
             enableDrawing(true)
             paperKitView?.isUserInteractionEnabled = false
             modeInterceptor.isUserInteractionEnabled = true
+            print("🖊️ modeInterceptor.isUserInteractionEnabled = true (observing touches)")
+            print("🖊️ paperKitView?.isUserInteractionEnabled = false (not intercepting)")
         case .selecting:
             print("🎯 Selecting mode - enabling PaperKit")
             enableDrawing(false)
@@ -951,15 +958,16 @@ extension UnifiedBoardCanvasController {
         pdfDrawingCanvas?.tool = tool
         marginDrawingCanvas?.tool = tool
         previousTool = tool
-        setCanvasMode(.drawing)
-        print("🖊️ setInk \(ink) width=\(width)")
+        print("🖊️ setInkTool: \(ink.rawValue) - tool set (mode controlled by toolbar)")
+        // NO setCanvasMode() call - toolbar callback controls mode
     }
 
     func setEraser() {
         let eraser = PKEraserTool(.vector)
         pdfDrawingCanvas?.tool = eraser
         marginDrawingCanvas?.tool = eraser
-        setCanvasMode(.drawing)
+        print("🧽 setEraser - tool set (mode controlled by toolbar)")
+        // NO setCanvasMode() call - toolbar callback controls mode
     }
 
     func beginLassoSelection() {

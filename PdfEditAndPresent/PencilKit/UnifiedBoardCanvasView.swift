@@ -91,7 +91,9 @@ struct UnifiedBoardCanvasView: UIViewControllerRepresentable {
             beginLasso: { [weak controller] in controller?.beginLasso() },
             endLasso: { [weak controller] in controller?.endLasso() },
             undo: { [weak controller] in controller?.undo() },
-            redo: { [weak controller] in controller?.redo() }
+            redo: { [weak controller] in controller?.redo() },
+            toggleRuler: { [weak controller] in controller?.toggleRuler() },
+            canvasController: controller
         )
         DispatchQueue.main.async {
             onToolAPIReady?(api)

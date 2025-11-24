@@ -10,14 +10,23 @@ protocol DrawingCanvasAPI: AnyObject {
     func undo()
     func redo()
     func toggleRuler() // no-op if unsupported
+
+    // NEW: Provide access to the canvas controller through the protocol
+    var canvasController: UnifiedBoardCanvasController? { get }
 }
 
 final class UnifiedBoardCanvasAdapter: DrawingCanvasAPI {
     private let api: UnifiedBoardToolAPI
     private var canvasController: UnifiedBoardCanvasController?
 
-    init(api: UnifiedBoardToolAPI) {
+    init(api: UnifiedBoardToolAPI, controller: UnifiedBoardCanvasController? = nil) {
         self.api = api
+        if let controller = controller {
+            self.canvasController = controller
+            print("✅ [ADAPTER-INIT] Controller attached directly in init - no casting needed")
+        } else {
+            print("⚠️ [ADAPTER-INIT] Controller not provided to adapter")
+        }
     }
 
     /// Attach the controller to establish strong reference after initialization

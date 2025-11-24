@@ -8,4 +8,6 @@ public struct UnifiedBoardToolAPI {
     public var endLasso: () -> Void
     public var undo: () -> Void
     public var redo: () -> Void
+    public var toggleRuler: () -> Void
+    public var canvasController: UnifiedBoardCanvasController?
 }

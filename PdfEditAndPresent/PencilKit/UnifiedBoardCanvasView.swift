@@ -29,6 +29,10 @@ struct UnifiedBoardCanvasView: UIViewControllerRepresentable {
 
         let controller = UnifiedBoardCanvasController()
 
+        // Set rotation BEFORE initializing canvas to ensure viewDidLayoutSubviews
+        // uses the correct rotation value from the start
+        controller.updateZoomAndRotation(zoomLevel, pageRotation)
+
         // Initialize canvas size
         controller.initializeCanvas(size: canvasSize)
 

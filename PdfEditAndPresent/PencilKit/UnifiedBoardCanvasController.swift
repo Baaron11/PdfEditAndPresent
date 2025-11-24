@@ -845,8 +845,13 @@ final class UnifiedBoardCanvasController: UIViewController {
             print("🔍 Canvas zoom updated: \(Int(zoomLevel * 100))%")
         }
 
-        if rotation != currentPageRotation {
-            currentPageRotation = rotation
+        // Always update the rotation value to ensure it's set before any layout
+        // This fixes the issue where viewDidLayoutSubviews() calls applyTransforms()
+        // before the rotation is properly initialized
+        let rotationChanged = rotation != currentPageRotation
+        currentPageRotation = rotation
+
+        if rotationChanged {
             print("🔄 Canvas rotation updated: \(rotation)°")
             // Apply the rotation transform to canvas views
             applyTransforms()

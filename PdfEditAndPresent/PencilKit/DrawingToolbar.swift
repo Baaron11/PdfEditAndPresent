@@ -8,14 +8,35 @@ struct DrawingToolbar: View {
     @ObservedObject var drawingViewModel: DrawingViewModel
     @ObservedObject var brushManager: BrushManager
     let onClear: () -> Void
+    var onToolModeChanged: ((DrawingToolMode) -> Void)?
 
     @State private var showBrushEditor = false
+    @State private var isCursorSelected = false
+
+    enum DrawingToolMode {
+        case cursorPan
+        case drawing
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             Divider()
 
             HStack(spacing: 12) {
+
+                Button(action: {
+                    isCursorSelected = true
+                    selectedBrush = nil
+                    onToolModeChanged?(.cursorPan)
+                }) {
+                    Image(systemName: "arrow.up.left")
+                        .font(.system(size: 18))
+                        .frame(width: 44, height: 44)
+                        .background(Circle().fill(isCursorSelected ?
+                            Color.blue.opacity(0.15) : Color.gray.opacity(0.2)))
+                }
+
+                Divider().frame(height: 30)
 
                 // Brush buttons
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -26,7 +47,9 @@ struct DrawingToolbar: View {
                                 isSelected: selectedBrush?.id == brush.id,
                                 action: {
                                     selectedBrush = brush
+                                    isCursorSelected = false
                                     drawingViewModel.selectBrush(brush)
+                                    onToolModeChanged?(.drawing)
                                 }
                             )
                         }
@@ -158,6 +181,10 @@ struct DrawingToolbar: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 12)
             .background(Color(UIColor.systemBackground))
+        }
+        .onAppear {
+            isCursorSelected = true
+            onToolModeChanged?(.cursorPan)
         }
         .sheet(isPresented: $showBrushEditor) {
             BrushEditorView(brushManager: brushManager)

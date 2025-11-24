@@ -885,6 +885,14 @@ struct PDFEditorScreenRefactored: View {
                     onClear: {
                         editorData.clearCanvas()
                         print("🧹 Cleared canvas (continuous mode)")
+                    },
+                    onToolModeChanged: { toolMode in
+                        switch toolMode {
+                        case .cursorPan:
+                            canvasMode = .selecting
+                        case .drawing:
+                            canvasMode = .drawing
+                        }
                     }
                 )
                 .padding(.bottom, 12)
@@ -998,6 +1006,14 @@ struct PDFEditorScreenRefactored: View {
                         print("🧹 Clear current page drawing")
                         let idx = pdfManager.currentPageIndex
                         pdfManager.setMarginDrawing(PKDrawing(), for: idx)
+                    },
+                    onToolModeChanged: { toolMode in
+                        switch toolMode {
+                        case .cursorPan:
+                            canvasMode = .selecting
+                        case .drawing:
+                            canvasMode = .drawing
+                        }
                     }
                 )
                 .padding(.horizontal, 12)

@@ -1034,6 +1034,7 @@ extension UnifiedBoardCanvasController {
         let eraser = PKEraserTool(.vector)
         pdfDrawingCanvas?.tool = eraser
         marginDrawingCanvas?.tool = eraser
+        previousTool = eraser  // ✅ FIX: Update previousTool so lasso restore uses eraser
 
         // Verify tools were actually set
         print("🧽 setEraser")

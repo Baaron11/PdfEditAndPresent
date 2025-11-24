@@ -14,21 +14,39 @@ protocol DrawingCanvasAPI: AnyObject {
 
 final class UnifiedBoardCanvasAdapter: DrawingCanvasAPI {
     private let api: UnifiedBoardToolAPI
+    private var canvasController: UnifiedBoardCanvasController?
 
     init(api: UnifiedBoardToolAPI) {
         self.api = api
     }
 
+    /// Attach the controller to establish strong reference after initialization
+    /// This ensures the adapter persists through SwiftUI re-renders
+    func attachController(_ controller: UnifiedBoardCanvasController) {
+        self.canvasController = controller
+        print("🔗 Adapter attached to controller (strong reference)")
+    }
+
     func setInk(ink: PKInkingTool.InkType, color: UIColor, width: CGFloat) {
+        guard let controller = canvasController else {
+            print("⚠️ [ADAPTER] Controller not attached, cannot set ink")
+            return
+        }
+
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         color.getRed(&r, green: &g, blue: &b, alpha: &a)
-        print("🖊️ [ADAPTER] setInk: \(ink.rawValue) width=\(width)")
+        print("🖊️ [ADAPTER] Setting ink through controller: \(ink.rawValue) width=\(width)")
         print("   Color at adapter: R=\(Int(r*255)), G=\(Int(g*255)), B=\(Int(b*255))")
         api.setInkTool(ink, color, width)
     }
 
     func setEraser() {
-        print("🧽 eraser")
+        guard let controller = canvasController else {
+            print("⚠️ [ADAPTER] Controller not attached, cannot set eraser")
+            return
+        }
+
+        print("🧽 [ADAPTER] Setting eraser through controller")
         api.setEraser()
     }
 
@@ -55,5 +73,10 @@ final class UnifiedBoardCanvasAdapter: DrawingCanvasAPI {
     func toggleRuler() {
         print("📏 toggle ruler (no-op unless implemented)")
         // If you add ruler support in controller later, call it here.
+    }
+
+    deinit {
+        print("🧹 UnifiedBoardCanvasAdapter deinit - breaking controller reference")
+        canvasController = nil
     }
 }

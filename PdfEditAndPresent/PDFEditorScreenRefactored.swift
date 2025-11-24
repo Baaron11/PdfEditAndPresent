@@ -869,6 +869,13 @@ struct PDFEditorScreenRefactored: View {
                         print("🧩 Tool API ready")
                         let adapter = UnifiedBoardCanvasAdapter(api: api)
                         self.drawingCanvasAdapter = adapter
+
+                        // Attach controller to establish strong reference (fixes brush color reset bug)
+                        if let controller = api as? UnifiedBoardCanvasController {
+                            adapter.attachController(controller)
+                            print("🔗 Adapter attached to controller in continuousScrollView (strong reference)")
+                        }
+
                         drawingVM.attachCanvas(adapter)
                     }
                 )
@@ -979,6 +986,13 @@ struct PDFEditorScreenRefactored: View {
                             print("🧩 Tool API ready")
                             let adapter = UnifiedBoardCanvasAdapter(api: api)
                             self.drawingCanvasAdapter = adapter
+
+                            // Attach controller to establish strong reference (fixes brush color reset bug)
+                            if let controller = api as? UnifiedBoardCanvasController {
+                                adapter.attachController(controller)
+                                print("🔗 Adapter attached to controller in singlePagePDFContent (strong reference)")
+                            }
+
                             drawingVM.attachCanvas(adapter)
                         }
                     )

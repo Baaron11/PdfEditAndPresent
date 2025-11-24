@@ -932,57 +932,62 @@ struct PDFEditorScreenRefactored: View {
             Color(UIColor.systemGray6)
                 .ignoresSafeArea()
 
-            ZStack(alignment: .topLeading) {
-                // PDF background - explicitly sized to match canvas
-                PDFPageBackground(
-                    pdfManager: pdfManager,
-                    currentPageIndex: pdfManager.currentPageIndex
-                )
-                .frame(width: effectiveSize.width, height: effectiveSize.height)
+            // Wrap in ScrollView to prevent overflow - allows panning when content exceeds available space
+            ScrollView([.horizontal, .vertical], showsIndicators: false) {
+                ZStack(alignment: .topLeading) {
+                    // PDF background - explicitly sized to match canvas
+                    PDFPageBackground(
+                        pdfManager: pdfManager,
+                        currentPageIndex: pdfManager.currentPageIndex
+                    )
+                    .frame(width: effectiveSize.width, height: effectiveSize.height)
 
-                // Canvas - sized to match the effective page size (like continuous mode)
-                UnifiedBoardCanvasView(
-                    editorData: editorData,
-                    pdfManager: pdfManager,
-                    canvasMode: $canvasMode,
-                    marginSettings: $marginSettings,
-                    canvasSize: effectiveSize,
-                    currentPageIndex: pdfManager.currentPageIndex,
-                    zoomLevel: pdfManager.zoomLevel,
-                    pageRotation: pdfManager.rotationForPage(pdfManager.currentPageIndex),
-                    onModeChanged: { newMode in
-                        print("📍 Canvas mode: \(newMode)")
-                    },
-                    onPaperKitItemAdded: {
-                        print("📌 Item added to canvas - marking as unsaved")
-                        pdfViewModel.hasUnsavedChanges = true
-                    },
-                    onDrawingChanged: { pageIndex, pdfDrawing, marginDrawing in
-                        if let pdfDrawing = pdfDrawing {
-                            pdfManager.setPdfAnchoredDrawing(pdfDrawing, for: pageIndex)
+                    // Canvas - sized to match the effective page size (like continuous mode)
+                    UnifiedBoardCanvasView(
+                        editorData: editorData,
+                        pdfManager: pdfManager,
+                        canvasMode: $canvasMode,
+                        marginSettings: $marginSettings,
+                        canvasSize: effectiveSize,
+                        currentPageIndex: pdfManager.currentPageIndex,
+                        zoomLevel: pdfManager.zoomLevel,
+                        pageRotation: pdfManager.rotationForPage(pdfManager.currentPageIndex),
+                        onModeChanged: { newMode in
+                            print("📍 Canvas mode: \(newMode)")
+                        },
+                        onPaperKitItemAdded: {
+                            print("📌 Item added to canvas - marking as unsaved")
+                            pdfViewModel.hasUnsavedChanges = true
+                        },
+                        onDrawingChanged: { pageIndex, pdfDrawing, marginDrawing in
+                            if let pdfDrawing = pdfDrawing {
+                                pdfManager.setPdfAnchoredDrawing(pdfDrawing, for: pageIndex)
+                            }
+                            if let marginDrawing = marginDrawing {
+                                pdfManager.setMarginDrawing(marginDrawing, for: pageIndex)
+                            }
+                        },
+                        onToolAPIReady: { api in
+                            print("🧩 Tool API ready")
+                            let adapter = UnifiedBoardCanvasAdapter(api: api)
+                            self.drawingCanvasAdapter = adapter
+                            drawingVM.attachCanvas(adapter)
                         }
-                        if let marginDrawing = marginDrawing {
-                            pdfManager.setMarginDrawing(marginDrawing, for: pageIndex)
-                        }
-                    },
-                    onToolAPIReady: { api in
-                        print("🧩 Tool API ready")
-                        let adapter = UnifiedBoardCanvasAdapter(api: api)
-                        self.drawingCanvasAdapter = adapter
-                        drawingVM.attachCanvas(adapter)
-                    }
-                )
+                    )
+                    .frame(width: effectiveSize.width, height: effectiveSize.height)
+                }
+                // Explicitly size ZStack to match the page (like continuous mode)
                 .frame(width: effectiveSize.width, height: effectiveSize.height)
+                // Zoom applied to BOTH PDF and canvas together
+                .scaleEffect(pdfManager.zoomLevel, anchor: .topLeading)
+                // Frame after scale to ensure ScrollView knows the scaled size
+                .frame(
+                    width: effectiveSize.width * pdfManager.zoomLevel,
+                    height: effectiveSize.height * pdfManager.zoomLevel
+                )
             }
-            // Explicitly size ZStack to match the page (like continuous mode)
-            .frame(width: effectiveSize.width, height: effectiveSize.height)
-            // Zoom and pan applied to BOTH PDF and canvas together
-            .scaleEffect(pdfManager.zoomLevel, anchor: .topLeading)
-            .offset(panOffset)
 
-            if canvasMode == .selecting {
-                panGestureOverlay
-            }
+            // Note: panGestureOverlay removed - ScrollView now handles panning natively
 
             if showDrawingToolbar, let _ = drawingCanvasAdapter {
                 DrawingToolbar(

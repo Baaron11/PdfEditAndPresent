@@ -257,12 +257,17 @@ final class UnifiedBoardCanvasController: UIViewController {
 
         if let pdf = pdfDrawingCanvas {
             print("   pdfCanvas exists: ✅ YES")
-            print("   pdfCanvas.tool address: \(ObjectIdentifier(pdf.tool))")
 
             if let tool = pdf.tool as? PKInkingTool {
                 var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0
                 tool.color.getRed(&r, green: &g, blue: &b, alpha: nil)
+                print("   Tool type: PKInkingTool (\(tool.inkType.rawValue))")
                 print("   Tool color: R=\(Int(r*255)), G=\(Int(g*255)), B=\(Int(b*255))")
+                print("   Tool width: \(tool.width)")
+            } else if pdf.tool is PKEraserTool {
+                print("   Tool type: PKEraserTool")
+            } else {
+                print("   Tool type: Unknown")
             }
         } else {
             print("   pdfCanvas exists: ❌ NIL")
@@ -957,20 +962,19 @@ extension UnifiedBoardCanvasController: PKCanvasViewDelegate {
     func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
         // ✅ Check what tool is about to draw
         print("✍️ [DRAW-START] About to draw")
-        print("   canvasView address: \(ObjectIdentifier(canvasView))")
-        print("   canvasView.tool address: \(ObjectIdentifier(canvasView.tool))")
 
         if let tool = canvasView.tool as? PKInkingTool {
             var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0
             tool.color.getRed(&r, green: &g, blue: &b, alpha: nil)
-            print("   Tool about to draw: R=\(Int(r*255)), G=\(Int(g*255)), B=\(Int(b*255))")
+            print("   Tool: \(tool.inkType.rawValue), color RGB(\(Int(r*255)), \(Int(g*255)), \(Int(b*255))), width=\(tool.width)")
+        } else if canvasView.tool is PKEraserTool {
+            print("   Tool: Eraser")
         }
 
-        // DEBUG: Which canvas drew and what color?
+        // Which canvas drew?
         let whichCanvas = canvasView === pdfDrawingCanvas ? "PDF" : (canvasView === marginDrawingCanvas ? "MARGIN" : "UNKNOWN")
         print("✍️ [CANVAS DREW]")
         print("   Which canvas: \(whichCanvas)")
-        print("   Canvas.tool: \(canvasView.tool)")
 
         if let tool = canvasView.tool as? PKInkingTool {
             var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0
@@ -985,7 +989,7 @@ extension UnifiedBoardCanvasController: PKCanvasViewDelegate {
             print("   Last stroke color: R=\(Int(r*255)), G=\(Int(g*255)), B=\(Int(b*255))")
         }
 
-        // Determine which canvas changed and save appropriately
+        // Save drawings
         if canvasView === pdfDrawingCanvas {
             guard let transformer = transformer else { return }
             let normalized = transformer.normalizeDrawingFromCanvasToPDF(canvasView.drawing)
@@ -1073,26 +1077,34 @@ extension UnifiedBoardCanvasController {
         let tool = PKInkingTool(ink, color: color, width: width)
 
         print("🎨 [TOOL-ASSIGN] BEFORE assignment")
-        print("   tool address: \(ObjectIdentifier(tool))")
-        print("   tool color: \(tool.color)")
-        print("   pdfCanvas.tool address (before): \(pdfDrawingCanvas?.tool.map { ObjectIdentifier($0) }.map(String.init(describing:)) ?? "NIL")")
+        print("   New tool: \(ink.rawValue), color RGB(\(Int(r*255)), \(Int(g*255)), \(Int(b*255))), width=\(width)")
+
+        // Check what tool is currently on canvas
+        if let currentTool = pdfDrawingCanvas?.tool as? PKInkingTool {
+            var cr: CGFloat = 0, cg: CGFloat = 0, cb: CGFloat = 0
+            currentTool.color.getRed(&cr, green: &cg, blue: &cb, alpha: nil)
+            print("   Current tool on canvas: \(currentTool.inkType.rawValue), color RGB(\(Int(cr*255)), \(Int(cg*255)), \(Int(cb*255)))")
+        }
 
         // Canvas validity check
         print("🔍 pdfDrawingCanvas validity check:")
         print("   pdfDrawingCanvas is nil: \(pdfDrawingCanvas == nil ? "YES ❌" : "NO ✅")")
-        print("   pdfDrawingCanvas actual: \(String(describing: pdfDrawingCanvas))")
 
-        // Try accessing the tool a different way
+        // Try assigning with direct reference
         if let canvas = pdfDrawingCanvas {
-            print("   canvas.tool (direct access): \(canvas.tool)")
             canvas.tool = tool
-            print("   canvas.tool (after assignment): \(canvas.tool)")
 
-            // Try reading it back immediately
-            let toolReadBack = canvas.tool
-            print("   toolReadBack address: \(ObjectIdentifier(toolReadBack))")
-            print("   tool address: \(ObjectIdentifier(tool))")
-            print("   Same object: \(ObjectIdentifier(toolReadBack) == ObjectIdentifier(tool) ? "✅ YES" : "❌ NO")")
+            // Read back immediately to verify
+            if let toolReadBack = canvas.tool as? PKInkingTool {
+                var tbr: CGFloat = 0, tbg: CGFloat = 0, tbb: CGFloat = 0
+                toolReadBack.color.getRed(&tbr, green: &tbg, blue: &tbb, alpha: nil)
+                let readBackColor = "RGB(\(Int(tbr*255)), \(Int(tbg*255)), \(Int(tbb*255)))"
+                let setColor = "RGB(\(Int(r*255)), \(Int(g*255)), \(Int(b*255)))"
+                print("   ✅ Tool assigned to canvas")
+                print("   Set color: \(setColor)")
+                print("   Read back color: \(readBackColor)")
+                print("   Colors match: \(readBackColor == setColor ? "✅ YES" : "❌ NO")")
+            }
         }
 
         // ✅ CRITICAL: Store the tool so it persists if canvases are recreated
@@ -1104,16 +1116,12 @@ extension UnifiedBoardCanvasController {
         previousTool = tool
 
         print("🎨 [TOOL-ASSIGN] AFTER assignment")
-        print("   tool assigned: \(ObjectIdentifier(tool))")
-        print("   pdfCanvas.tool address (after): \(pdfDrawingCanvas?.tool.map { ObjectIdentifier($0) }.map(String.init(describing:)) ?? "NIL")")
-        print("   pdfCanvas.tool actual object: \(pdfDrawingCanvas?.tool.map(String.init(describing:)) ?? "NIL")")
 
-        // ✅ CRITICAL: Verify they match
-        if let canvas = pdfDrawingCanvas, let toolOnCanvas = canvas.tool as? PKInkingTool {
-            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0
-            toolOnCanvas.color.getRed(&r, green: &g, blue: &b, alpha: nil)
-            print("   VERIFICATION: Tool on canvas color: R=\(Int(r*255)), G=\(Int(g*255)), B=\(Int(b*255))")
-            print("   Assignment worked: \(ObjectIdentifier(toolOnCanvas) == ObjectIdentifier(tool) ? "✅ YES" : "❌ NO")")
+        // Final verification
+        if let canvas = pdfDrawingCanvas, let finalTool = canvas.tool as? PKInkingTool {
+            var fr: CGFloat = 0, fg: CGFloat = 0, fb: CGFloat = 0
+            finalTool.color.getRed(&fr, green: &fg, blue: &fb, alpha: nil)
+            print("   Final tool on canvas: \(finalTool.inkType.rawValue), color RGB(\(Int(fr*255)), \(Int(fg*255)), \(Int(fb*255)))")
         }
 
         // Verify tools were actually set

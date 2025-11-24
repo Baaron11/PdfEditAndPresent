@@ -982,7 +982,11 @@ extension UnifiedBoardCanvasController {
         pdfDrawingCanvas?.tool = tool
         marginDrawingCanvas?.tool = tool
         previousTool = tool
-        print("🖊️ setInkTool: \(ink.rawValue) - tool set (mode controlled by toolbar)")
+
+        // Verify tools were actually set
+        print("🖊️ setInkTool: \(ink.rawValue) width=\(width)")
+        print("   pdfCanvas.tool: \(pdfDrawingCanvas?.tool != nil ? "✅ SET" : "❌ NIL")")
+        print("   marginCanvas.tool: \(marginDrawingCanvas?.tool != nil ? "✅ SET" : "❌ NIL")")
         // NO setCanvasMode() call - toolbar callback controls mode
     }
 
@@ -990,7 +994,11 @@ extension UnifiedBoardCanvasController {
         let eraser = PKEraserTool(.vector)
         pdfDrawingCanvas?.tool = eraser
         marginDrawingCanvas?.tool = eraser
-        print("🧽 setEraser - tool set (mode controlled by toolbar)")
+
+        // Verify tools were actually set
+        print("🧽 setEraser")
+        print("   pdfCanvas.tool: \(pdfDrawingCanvas?.tool != nil ? "✅ SET" : "❌ NIL")")
+        print("   marginCanvas.tool: \(marginDrawingCanvas?.tool != nil ? "✅ SET" : "❌ NIL")")
         // NO setCanvasMode() call - toolbar callback controls mode
     }
 

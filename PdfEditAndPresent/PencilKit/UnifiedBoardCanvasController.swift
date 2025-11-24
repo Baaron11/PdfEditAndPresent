@@ -202,7 +202,6 @@ final class UnifiedBoardCanvasController: UIViewController {
         canvas.backgroundColor = UIColor.blue.withAlphaComponent(0.2)
         canvas.isOpaque = false
         canvas.isUserInteractionEnabled = false
-        canvas.allowsFingerDrawing = true
         canvas.drawingPolicy = .anyInput
         canvas.maximumZoomScale = 1.0
         canvas.minimumZoomScale = 1.0
@@ -878,13 +877,17 @@ final class UnifiedBoardCanvasController: UIViewController {
             forName: UITextField.textDidBeginEditingNotification,
             object: nil, queue: .main
         ) { [weak self] note in
-            self?.maybeSwitchToSelectIfDescendant(of: paperView, editingObject: note.object)
+            MainActor.assumeIsolated {
+                self?.maybeSwitchToSelectIfDescendant(of: paperView, editingObject: note.object)
+            }
         }
         let tvObs = NotificationCenter.default.addObserver(
             forName: UITextView.textDidBeginEditingNotification,
             object: nil, queue: .main
         ) { [weak self] note in
-            self?.maybeSwitchToSelectIfDescendant(of: paperView, editingObject: note.object)
+            MainActor.assumeIsolated {
+                self?.maybeSwitchToSelectIfDescendant(of: paperView, editingObject: note.object)
+            }
         }
         interactionObservers.append(contentsOf: [tfObs, tvObs])
     }
@@ -1034,17 +1037,20 @@ extension UnifiedBoardCanvasController: PKCanvasViewDelegate {
 
         // Check if this is even the RIGHT canvas view
         print("   canvasView address: \(ObjectIdentifier(canvasView))")
-        print("   pdfDrawingCanvas address: \(ObjectIdentifier(pdfDrawingCanvas))")
-        print("   marginDrawingCanvas address: \(ObjectIdentifier(marginDrawingCanvas))")
+        if let pdf = pdfDrawingCanvas {
+            print("   pdfDrawingCanvas address: \(ObjectIdentifier(pdf))")
+        }
+        if let margin = marginDrawingCanvas {
+            print("   marginDrawingCanvas address: \(ObjectIdentifier(margin))")
+        }
 
         // If addresses don't match, that's the problem!
-        if let pdfCanvas = pdfDrawingCanvas, ObjectIdentifier(canvasView) != ObjectIdentifier(pdfCanvas),
-           let marginCanvas = marginDrawingCanvas, ObjectIdentifier(canvasView) != ObjectIdentifier(marginCanvas) {
-            print("   ⚠️ UNEXPECTED CANVAS! Drawing on unknown canvas!")
-        } else if pdfDrawingCanvas != nil && ObjectIdentifier(canvasView) == ObjectIdentifier(pdfDrawingCanvas) {
+        if let pdfCanvas = pdfDrawingCanvas, ObjectIdentifier(canvasView) == ObjectIdentifier(pdfCanvas) {
             print("   ✅ Drawing on PDF canvas")
-        } else if marginDrawingCanvas != nil && ObjectIdentifier(canvasView) == ObjectIdentifier(marginDrawingCanvas) {
+        } else if let marginCanvas = marginDrawingCanvas, ObjectIdentifier(canvasView) == ObjectIdentifier(marginCanvas) {
             print("   ✅ Drawing on MARGIN canvas")
+        } else {
+            print("   ⚠️ UNEXPECTED CANVAS! Drawing on unknown canvas!")
         }
 
         // ✅ Check what tool is about to draw

@@ -76,6 +76,10 @@ final class UnifiedBoardCanvasController: UIViewController {
     private var currentInkingTool: PKInkingTool?
     private var currentEraserTool: PKEraserTool?
 
+    // Backup of tool state when entering lasso - preserved across lasso flow
+    private var toolBeforeLasso: PKTool?
+    private var eraserBeforeLasso: PKEraserTool?
+
     // PDFManager reference for querying page sizes
     weak var pdfManager: PDFManager?
 
@@ -274,6 +278,18 @@ final class UnifiedBoardCanvasController: UIViewController {
         }
     }
 
+    /// Format a tool into a human-readable description for logging
+    private func toolDescription(_ tool: PKTool) -> String {
+        if let inkTool = tool as? PKInkingTool {
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0
+            inkTool.color.getRed(&r, green: &g, blue: &b, alpha: nil)
+            return "\(inkTool.inkType.rawValue) RGB(\(Int(r*255)),\(Int(g*255)),\(Int(b*255)))"
+        } else if tool is PKEraserTool {
+            return "eraser"
+        }
+        return "unknown"
+    }
+
     // MARK: - Touch Debugging
 
     // Debug touch routing
@@ -463,24 +479,54 @@ final class UnifiedBoardCanvasController: UIViewController {
 
         if mode == .selecting {
             print("   Entering SELECTING mode - starting lasso")
+            print("   💾 Saving tool before lasso...")
+
+            // CRITICAL: Save current tool state before entering lasso
+            // The lasso flow will clear currentInkingTool, so we need this backup
+            if let currentTool = pdfDrawingCanvas?.tool {
+                toolBeforeLasso = currentTool
+                print("      ✅ Saved: \(toolDescription(currentTool))")
+            }
+
             lassoController?.beginLasso()
         } else {
             print("   Exiting SELECTING mode - ending lasso")
             lassoController?.endLassoAndRestorePreviousTool()
 
-            // ✅ CRITICAL FIX: Restore to the currently selected tool, not the previous tool
-            // This ensures the user's selected brush color is preserved after exiting lasso
+            // ✅ TRY #1: Restore currentInkingTool if still available
             if let currentTool = currentInkingTool {
-                print("   ✅ Restoring to currentInkingTool (user's selected brush)")
+                print("   ✅ Restoring to currentInkingTool (still available)")
                 pdfDrawingCanvas?.tool = currentTool
                 marginDrawingCanvas?.tool = currentTool
                 previousTool = currentTool
-            } else if let currentEraser = currentEraserTool {
-                print("   ✅ Restoring to currentEraserTool (user's selected eraser)")
+            }
+            // ✅ TRY #2: Restore currentEraserTool if still available
+            else if let currentEraser = currentEraserTool {
+                print("   ✅ Restoring to currentEraserTool (still available)")
                 pdfDrawingCanvas?.tool = currentEraser
                 marginDrawingCanvas?.tool = currentEraser
                 previousTool = currentEraser
             }
+            // ✅ TRY #3: Restore from backup if tool was lost by lasso flow
+            else if let backupTool = toolBeforeLasso {
+                print("   ⚠️ currentInkingTool was lost by lasso, restoring from backup")
+                print("      Restored: \(toolDescription(backupTool))")
+                pdfDrawingCanvas?.tool = backupTool
+                marginDrawingCanvas?.tool = backupTool
+                previousTool = backupTool
+                // Try to restore currentInkingTool from the backup
+                if backupTool is PKEraserTool {
+                    currentEraserTool = backupTool as? PKEraserTool
+                } else {
+                    currentInkingTool = backupTool as? PKInkingTool
+                }
+            } else {
+                print("   ⚠️ Could not restore tool - no backup available!")
+            }
+
+            // Clear backup after restore
+            toolBeforeLasso = nil
+            eraserBeforeLasso = nil
         }
 
         verifyToolOnCanvas("AFTER setCanvasMode(\(mode))")

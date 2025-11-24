@@ -89,7 +89,7 @@ struct PDFEditorScreenRefactored: View {
     @StateObject private var pdfManager = PDFManager()
     @StateObject private var editorData = EditorData()
     
-    @State private var canvasMode: CanvasMode = .drawing
+    @State private var canvasMode: CanvasMode = .selecting
     @State private var isSidebarOpen: Bool = true
     @State private var canvasKey: UUID = UUID()
     @State private var isEditingTitle = false

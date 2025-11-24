@@ -72,6 +72,10 @@ final class UnifiedBoardCanvasController: UIViewController {
     // Previous tool for lasso restore
     private var previousTool: PKTool?
 
+    // ✅ Store the current tool so it persists if canvases are recreated (continuous scroll)
+    private var currentInkingTool: PKInkingTool?
+    private var currentEraserTool: PKEraserTool?
+
     // PDFManager reference for querying page sizes
     weak var pdfManager: PDFManager?
 
@@ -391,6 +395,20 @@ final class UnifiedBoardCanvasController: UIViewController {
         pdfCanvas.tool = defaultTool
         marginCanvas.tool = defaultTool
         previousTool = defaultTool
+
+        // ✅ CRITICAL: If a tool was previously selected, restore it now
+        // This handles the case where canvases are recreated during page scrolling
+        if let storedInkingTool = currentInkingTool {
+            print("🎨 [PERSISTENCE] Restoring stored inking tool to newly created canvases")
+            pdfCanvas.tool = storedInkingTool
+            marginCanvas.tool = storedInkingTool
+            previousTool = storedInkingTool
+        } else if let storedEraserTool = currentEraserTool {
+            print("🧹 [PERSISTENCE] Restoring stored eraser tool to newly created canvases")
+            pdfCanvas.tool = storedEraserTool
+            marginCanvas.tool = storedEraserTool
+            previousTool = storedEraserTool
+        }
 
         // Bring container on top of PDF, then canvases above anything inside
         view.bringSubviewToFront(containerView)
@@ -1019,6 +1037,11 @@ extension UnifiedBoardCanvasController {
         print("🎨 [TOOLBAR] Sent color: R=\(Int(r*255)), G=\(Int(g*255)), B=\(Int(b*255)), A=\(Int(a*255))")
 
         let tool = PKInkingTool(ink, color: color, width: width)
+
+        // ✅ CRITICAL: Store the tool so it persists if canvases are recreated
+        currentInkingTool = tool
+        currentEraserTool = nil
+
         pdfDrawingCanvas?.tool = tool
         marginDrawingCanvas?.tool = tool
         previousTool = tool
@@ -1032,6 +1055,11 @@ extension UnifiedBoardCanvasController {
 
     func setEraser() {
         let eraser = PKEraserTool(.vector)
+
+        // ✅ CRITICAL: Store the eraser so it persists if canvases are recreated
+        currentEraserTool = eraser
+        currentInkingTool = nil
+
         pdfDrawingCanvas?.tool = eraser
         marginDrawingCanvas?.tool = eraser
         previousTool = eraser  // ✅ FIX: Update previousTool so lasso restore uses eraser

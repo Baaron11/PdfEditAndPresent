@@ -219,23 +219,22 @@ final class UnifiedBoardCanvasController: UIViewController {
     private func updateCanvasInteractionState() {
         let shouldInteract = (canvasMode == .drawing)
 
-        print("🎯 Canvas interaction: \(shouldInteract ? "ENABLED" : "DISABLED") (mode=\(canvasMode))")
-
         pdfDrawingCanvas?.isUserInteractionEnabled = shouldInteract
         marginDrawingCanvas?.isUserInteractionEnabled = shouldInteract
 
+        print("🎯 Canvas interaction: \(shouldInteract ? "ENABLED" : "DISABLED") (mode=\(canvasMode))")
+
         if shouldInteract {
-            print("🎯 [FIRST RESPONDER] Making canvas first responder")
-            pdfDrawingCanvas?.becomeFirstResponder()
-            marginDrawingCanvas?.becomeFirstResponder()
-            print("🎯 [FIRST RESPONDER] pdfDrawingCanvas.isFirstResponder = \(pdfDrawingCanvas?.isFirstResponder ?? false)")
-            if let toolPicker = pencilKitToolPicker, let canvas = pdfDrawingCanvas {
-                toolPicker.setVisible(false, forFirstResponder: canvas)
+            print("🎯 Canvas debug info:")
+            print("   bounds: \(pdfDrawingCanvas?.bounds ?? .zero)")
+            print("   frame: \(pdfDrawingCanvas?.frame ?? .zero)")
+            print("   isHidden: \(pdfDrawingCanvas?.isHidden ?? true)")
+            print("   isUserInteractionEnabled: \(pdfDrawingCanvas?.isUserInteractionEnabled ?? false)")
+
+            // Ensure canvas is on top of other views
+            if let canvas = pdfDrawingCanvas, let superview = canvas.superview {
+                superview.bringSubviewToFront(canvas)
             }
-        } else {
-            print("🎯 [FIRST RESPONDER] Resigning first responder (selecting mode)")
-            pdfDrawingCanvas?.resignFirstResponder()
-            marginDrawingCanvas?.resignFirstResponder()
         }
     }
 
@@ -243,9 +242,29 @@ final class UnifiedBoardCanvasController: UIViewController {
     func enableDrawing(_ enabled: Bool) {
         pdfDrawingCanvas?.isUserInteractionEnabled = enabled
         marginDrawingCanvas?.isUserInteractionEnabled = enabled
-        if enabled {
-            pdfDrawingCanvas?.becomeFirstResponder()
+    }
+
+    // MARK: - Touch Debugging
+
+    // Debug touch routing
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        print("🔴 [CONTROLLER] touchesBegan - \(touches.count) touches")
+        if let touch = touches.first {
+            let location = touch.location(in: view)
+            print("   Location in view: \(location)")
+            print("   pdfCanvas frame: \(pdfDrawingCanvas?.frame ?? .zero)")
         }
+        super.touchesBegan(touches, with: event)
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        print("🔴 [CONTROLLER] touchesMoved - \(touches.count) touches")
+        super.touchesMoved(touches, with: event)
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        print("🔴 [CONTROLLER] touchesEnded - \(touches.count) touches")
+        super.touchesEnded(touches, with: event)
     }
 
     // MARK: - Public API
@@ -611,12 +630,10 @@ final class UnifiedBoardCanvasController: UIViewController {
         case .pdf:
             pdfDrawingCanvas?.isUserInteractionEnabled = true
             marginDrawingCanvas?.isUserInteractionEnabled = false
-            pdfDrawingCanvas?.becomeFirstResponder()
             lassoController?.setTargetCanvas(pdfDrawingCanvas)
         case .margin:
             pdfDrawingCanvas?.isUserInteractionEnabled = false
             marginDrawingCanvas?.isUserInteractionEnabled = true
-            marginDrawingCanvas?.becomeFirstResponder()
             lassoController?.setTargetCanvas(marginDrawingCanvas)
         }
     }
@@ -694,12 +711,20 @@ final class UnifiedBoardCanvasController: UIViewController {
     private func updateGestureRouting() {
         switch canvasMode {
         case .drawing:
-            print("🖊️ Drawing mode - enabling PKCanvasView for touches")
+            print("🖊️ Drawing mode - routing touches to PKCanvasView")
             enableDrawing(true)
             paperKitView?.isUserInteractionEnabled = false
             modeInterceptor.isUserInteractionEnabled = true
-            print("🖊️ modeInterceptor.isUserInteractionEnabled = true (observing touches)")
-            print("🖊️ paperKitView?.isUserInteractionEnabled = false (not intercepting)")
+
+            // CRITICAL: Allow modeInterceptor to pass touches through
+            if let scrollView = modeInterceptor as? UIScrollView {
+                scrollView.canCancelContentTouches = false
+                scrollView.delaysContentTouches = false
+            }
+
+            print("🖊️ modeInterceptor touch config:")
+            print("   canCancelContentTouches: false")
+            print("   delaysContentTouches: false")
         case .selecting:
             print("🎯 Selecting mode - enabling PaperKit")
             enableDrawing(false)
@@ -825,7 +850,6 @@ final class UnifiedBoardCanvasController: UIViewController {
         guard let toolPicker = pencilKitToolPicker else { return }
         if let activeCanvas = activeDrawingLayer == .pdf ? pdfDrawingCanvas : marginDrawingCanvas {
             toolPicker.setVisible(true, forFirstResponder: activeCanvas)
-            activeCanvas.becomeFirstResponder()
         }
     }
 

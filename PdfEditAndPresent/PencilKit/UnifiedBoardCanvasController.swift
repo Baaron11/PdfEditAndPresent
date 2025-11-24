@@ -8,7 +8,7 @@ final class UnifiedBoardCanvasController: UIViewController, DrawingCanvasAPI {
     // MARK: - Properties
 
     // NEW: Implement protocol property - return self so callers can access the controller
-    var canvasController: UnifiedBoardCanvasController? { self }
+    internal var canvasController: UnifiedBoardCanvasController? { self }
 
     var canvasMode: CanvasMode = .idle {
         didSet {
@@ -1184,7 +1184,7 @@ extension UnifiedBoardCanvasController {
         }
     }
 
-    func setInkTool(_ ink: PKInkingTool.InkType, color: UIColor, width: CGFloat) {
+    func setInk(ink: PKInkingTool.InkType, color: UIColor, width: CGFloat) {
         // DEBUG: What color is the toolbar actually sending?
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         color.getRed(&r, green: &g, blue: &b, alpha: &a)
@@ -1284,14 +1284,19 @@ extension UnifiedBoardCanvasController {
         // NO setCanvasMode() call - toolbar callback controls mode
     }
 
-    func beginLassoSelection() {
+    func beginLasso() {
         lassoController?.beginLasso()
         setCanvasMode(.selecting)
     }
 
-    func endLassoSelection() {
+    func endLasso() {
         lassoController?.endLassoAndRestorePreviousTool()
         setCanvasMode(.drawing)
+    }
+
+    func toggleRuler() {
+        // Ruler functionality can be implemented here
+        print("🔲 toggleRuler called")
     }
 
     func undo() {

@@ -450,16 +450,37 @@ final class UnifiedBoardCanvasController: UIViewController {
 
     /// Set canvas mode (drawing, selecting, idle)
     func setCanvasMode(_ mode: CanvasMode) {
+        print("📍 [MODE-CHANGE] setCanvasMode(\(mode))")
+        print("   currentInkingTool: \(currentInkingTool != nil ? "✅ SET" : "❌ NIL")")
+
         verifyToolOnCanvas("BEFORE setCanvasMode(\(mode))")
         self.canvasMode = mode
         updateCanvasInteractionState()
         onModeChanged?(mode)
         onCanvasModeChanged?(mode)
+
         if mode == .selecting {
+            print("   Entering SELECTING mode - starting lasso")
             lassoController?.beginLasso()
         } else {
+            print("   Exiting SELECTING mode - ending lasso")
             lassoController?.endLassoAndRestorePreviousTool()
+
+            // ✅ CRITICAL FIX: Restore to the currently selected tool, not the previous tool
+            // This ensures the user's selected brush color is preserved after exiting lasso
+            if let currentTool = currentInkingTool {
+                print("   ✅ Restoring to currentInkingTool (user's selected brush)")
+                pdfDrawingCanvas?.tool = currentTool
+                marginDrawingCanvas?.tool = currentTool
+                previousTool = currentTool
+            } else if let currentEraser = currentEraserTool {
+                print("   ✅ Restoring to currentEraserTool (user's selected eraser)")
+                pdfDrawingCanvas?.tool = currentEraser
+                marginDrawingCanvas?.tool = currentEraser
+                previousTool = currentEraser
+            }
         }
+
         verifyToolOnCanvas("AFTER setCanvasMode(\(mode))")
     }
 

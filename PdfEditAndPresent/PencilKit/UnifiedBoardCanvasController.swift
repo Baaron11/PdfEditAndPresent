@@ -278,6 +278,7 @@ final class UnifiedBoardCanvasController: UIViewController {
 
     // Debug touch routing
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        print("🖱️ [TOUCH-BEGIN] Tool at touch start: \(toolDescription(pdfDrawingCanvas?.tool))")
         print("🔴 [TOUCH] touchesBegan - \(touches.count) touches")
         if let touch = touches.first {
             let location = touch.location(in: view)
@@ -285,19 +286,8 @@ final class UnifiedBoardCanvasController: UIViewController {
         }
 
         // DEBUG: Check BOTH canvas tools at touch time
-        print("   pdfCanvas.tool: \(pdfDrawingCanvas?.tool ?? PKInkingTool(.pen, color: .black, width: 1))")
-        if let tool = pdfDrawingCanvas?.tool as? PKInkingTool {
-            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-            tool.color.getRed(&r, green: &g, blue: &b, alpha: &a)
-            print("   pdfCanvas tool color: R=\(Int(r*255)), G=\(Int(g*255)), B=\(Int(b*255))")
-        }
-
-        print("   marginCanvas.tool: \(marginDrawingCanvas?.tool ?? PKInkingTool(.pen, color: .black, width: 1))")
-        if let tool = marginDrawingCanvas?.tool as? PKInkingTool {
-            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-            tool.color.getRed(&r, green: &g, blue: &b, alpha: &a)
-            print("   marginCanvas tool color: R=\(Int(r*255)), G=\(Int(g*255)), B=\(Int(b*255))")
-        }
+        print("   pdfCanvas.tool: \(toolDescription(pdfDrawingCanvas?.tool))")
+        print("   marginCanvas.tool: \(toolDescription(marginDrawingCanvas?.tool))")
 
         super.touchesBegan(touches, with: event)
     }
@@ -375,6 +365,13 @@ final class UnifiedBoardCanvasController: UIViewController {
 
     /// Setup dual PencilKit layers
     func setupPencilKit() {
+        print("📋 [SETUP-PENCILKIT] CALLED - will recreate canvas!")
+        print("   Current pdfCanvas: \(pdfDrawingCanvas != nil ? "✅ EXISTS" : "❌ NIL")")
+        print("   Current tool before setup: \(pdfDrawingCanvas?.tool != nil ? "✅ SET" : "❌ NIL")")
+        if let tool = pdfDrawingCanvas?.tool {
+            print("   Tool before setup: \(toolDescription(tool))")
+        }
+
         print("🎛️ [LIFECYCLE] setupPencilKit() called")
         print("🎛️ [LIFECYCLE]   Current canvasSize: \(canvasSize.width) x \(canvasSize.height)")
         print("🎛️ [LIFECYCLE]   Current pageRotation: \(currentPageRotation)°")
@@ -445,6 +442,11 @@ final class UnifiedBoardCanvasController: UIViewController {
         // Apply initial transforms
         applyTransforms()
 
+        print("📋 [SETUP-PENCILKIT] COMPLETE - new canvas created")
+        print("   New pdfCanvas: \(pdfDrawingCanvas != nil ? "✅ EXISTS" : "❌ NIL")")
+        if let tool = pdfDrawingCanvas?.tool {
+            print("   New pdfCanvas.tool: \(toolDescription(tool))")
+        }
         print("Dual PencilKit layers setup complete")
     }
 
@@ -981,6 +983,24 @@ enum PDFAlignment: Equatable {
 // MARK: - PKCanvasViewDelegate
 extension UnifiedBoardCanvasController: PKCanvasViewDelegate {
     func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
+        let toolBefore = canvasView.tool
+        print("✍️ [DRAW-START-BEFORE] Tool: \(toolDescription(toolBefore))")
+
+        // Check if this is even the RIGHT canvas view
+        print("   canvasView address: \(ObjectIdentifier(canvasView))")
+        print("   pdfDrawingCanvas address: \(ObjectIdentifier(pdfDrawingCanvas))")
+        print("   marginDrawingCanvas address: \(ObjectIdentifier(marginDrawingCanvas))")
+
+        // If addresses don't match, that's the problem!
+        if let pdfCanvas = pdfDrawingCanvas, ObjectIdentifier(canvasView) != ObjectIdentifier(pdfCanvas),
+           let marginCanvas = marginDrawingCanvas, ObjectIdentifier(canvasView) != ObjectIdentifier(marginCanvas) {
+            print("   ⚠️ UNEXPECTED CANVAS! Drawing on unknown canvas!")
+        } else if pdfDrawingCanvas != nil && ObjectIdentifier(canvasView) == ObjectIdentifier(pdfDrawingCanvas) {
+            print("   ✅ Drawing on PDF canvas")
+        } else if marginDrawingCanvas != nil && ObjectIdentifier(canvasView) == ObjectIdentifier(marginDrawingCanvas) {
+            print("   ✅ Drawing on MARGIN canvas")
+        }
+
         // ✅ Check what tool is about to draw
         print("✍️ [DRAW-START] About to draw")
 
@@ -1088,6 +1108,27 @@ extension UnifiedBoardCanvasController: UIGestureRecognizerDelegate {
 
 // MARK: - Tool API Methods
 extension UnifiedBoardCanvasController {
+
+    private func toolDescription(_ tool: PKTool?) -> String {
+        guard let tool = tool else { return "NIL" }
+
+        if let inkTool = tool as? PKInkingTool {
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0
+            inkTool.color.getRed(&r, green: &g, blue: &b, alpha: nil)
+            let red = Int(r * 255)
+            let green = Int(g * 255)
+            let blue = Int(b * 255)
+            let inkType = String(describing: inkTool.inkType).split(separator: ".").last ?? "unknown"
+            return "\(inkType) RGB(\(red),\(green),\(blue)) width=\(inkTool.width)"
+        } else if tool is PKEraserTool {
+            return "eraser"
+        } else if tool is PKLassoTool {
+            return "lasso"
+        } else {
+            return "unknown: \(type(of: tool))"
+        }
+    }
+
     func setInkTool(_ ink: PKInkingTool.InkType, color: UIColor, width: CGFloat) {
         // DEBUG: What color is the toolbar actually sending?
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
@@ -1150,6 +1191,23 @@ extension UnifiedBoardCanvasController {
         print("   pdfCanvas.tool: \(pdfDrawingCanvas?.tool != nil ? "✅ SET" : "❌ NIL")")
         print("   marginCanvas.tool: \(marginDrawingCanvas?.tool != nil ? "✅ SET" : "❌ NIL")")
         print("   ✅ Stored in currentInkingTool for persistence")
+
+        // ⏱️ DIAGNOSTIC: Schedule a check 100ms later to see if tool is still set
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            if let currentTool = self.pdfDrawingCanvas?.tool {
+                print("⏱️ [100ms LATER] Tool still set: \(self.toolDescription(currentTool))")
+            } else {
+                print("⏱️ [100ms LATER] Tool is now NIL!")
+            }
+        }
+
+        // ⏱️ Check immediately at next runloop iteration
+        DispatchQueue.main.async {
+            if let currentTool = self.pdfDrawingCanvas?.tool {
+                print("⏱️ [NEXT RUNLOOP] Tool after setInkTool: \(self.toolDescription(currentTool))")
+            }
+        }
+
         // NO setCanvasMode() call - toolbar callback controls mode
     }
 

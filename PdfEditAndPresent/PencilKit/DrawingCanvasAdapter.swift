@@ -20,7 +20,10 @@ final class UnifiedBoardCanvasAdapter: DrawingCanvasAPI {
     }
 
     func setInk(ink: PKInkingTool.InkType, color: UIColor, width: CGFloat) {
-        print("🖊️ setInk: \(ink.rawValue) width=\(width)")
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        color.getRed(&r, green: &g, blue: &b, alpha: &a)
+        print("🖊️ [ADAPTER] setInk: \(ink.rawValue) width=\(width)")
+        print("   Color at adapter: R=\(Int(r*255)), G=\(Int(g*255)), B=\(Int(b*255))")
         api.setInkTool(ink, color, width)
     }
 

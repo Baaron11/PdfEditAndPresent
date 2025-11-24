@@ -254,6 +254,18 @@ final class UnifiedBoardCanvasController: UIViewController {
             print("   Location in view: \(location)")
             print("   pdfCanvas frame: \(pdfDrawingCanvas?.frame ?? .zero)")
         }
+
+        // DEBUG: What tool is being used for drawing?
+        if let tool = pdfDrawingCanvas?.tool as? PKInkingTool {
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            tool.color.getRed(&r, green: &g, blue: &b, alpha: &a)
+            print("🔍 [DRAWING] Using tool color: R=\(Int(r*255)), G=\(Int(g*255)), B=\(Int(b*255))")
+            print("   Tool ink type: \(tool.inkType.rawValue)")
+            print("   Tool width: \(tool.width)")
+        } else {
+            print("❌ [DRAWING] pdfDrawingCanvas.tool is NIL!")
+        }
+
         super.touchesBegan(touches, with: event)
     }
 
@@ -978,6 +990,12 @@ extension UnifiedBoardCanvasController: UIGestureRecognizerDelegate {
 // MARK: - Tool API Methods
 extension UnifiedBoardCanvasController {
     func setInkTool(_ ink: PKInkingTool.InkType, color: UIColor, width: CGFloat) {
+        // DEBUG: What color is the toolbar actually sending?
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        color.getRed(&r, green: &g, blue: &b, alpha: &a)
+
+        print("🎨 [TOOLBAR] Sent color: R=\(Int(r*255)), G=\(Int(g*255)), B=\(Int(b*255)), A=\(Int(a*255))")
+
         let tool = PKInkingTool(ink, color: color, width: width)
         pdfDrawingCanvas?.tool = tool
         marginDrawingCanvas?.tool = tool

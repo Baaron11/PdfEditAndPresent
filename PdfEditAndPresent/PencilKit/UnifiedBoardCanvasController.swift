@@ -4,8 +4,11 @@ import PaperKit
 
 // MARK: - Unified Board Canvas Controller
 @MainActor
-final class UnifiedBoardCanvasController: UIViewController {
+final class UnifiedBoardCanvasController: UIViewController, DrawingCanvasAPI {
     // MARK: - Properties
+
+    // NEW: Implement protocol property - return self so callers can access the controller
+    var canvasController: UnifiedBoardCanvasController? { self }
 
     var canvasMode: CanvasMode = .idle {
         didSet {

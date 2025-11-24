@@ -223,6 +223,11 @@ final class UnifiedBoardCanvasController: UIViewController {
     private func updateCanvasInteractionState() {
         let shouldInteract = (canvasMode == .drawing)
 
+        print("🎯 [INTERACTION] updateCanvasInteractionState()")
+        print("   shouldInteract: \(shouldInteract)")
+        print("   pdfCanvas address: \(pdfDrawingCanvas.map { "\(ObjectIdentifier($0))" } ?? "NIL")")
+        print("   pdfCanvas.tool address: \(pdfDrawingCanvas?.tool.map { "\(ObjectIdentifier($0))" } ?? "NIL")")
+
         pdfDrawingCanvas?.isUserInteractionEnabled = shouldInteract
         marginDrawingCanvas?.isUserInteractionEnabled = shouldInteract
 
@@ -360,6 +365,9 @@ final class UnifiedBoardCanvasController: UIViewController {
         // Create PDF-anchored canvas (Layer 2)
         let pdfCanvas = PKCanvasView()
         pdfDrawingCanvas = pdfCanvas  // Set reference before pinCanvas so name detection works
+        print("📍 [CANVAS] Created pdfDrawingCanvas")
+        print("   Memory address: \(ObjectIdentifier(pdfCanvas))")
+        print("   Initial tool: \(pdfCanvas.tool)")
         print("🎛️ [LIFECYCLE]   About to call pinCanvas() for pdfDrawingCanvas")
         pinCanvas(pdfCanvas, to: containerView)
         pdfCanvas.delegate = self
@@ -367,6 +375,9 @@ final class UnifiedBoardCanvasController: UIViewController {
         // Create margin-anchored canvas (Layer 3)
         let marginCanvas = PKCanvasView()
         marginDrawingCanvas = marginCanvas  // Set reference before pinCanvas
+        print("📍 [CANVAS] Created marginDrawingCanvas")
+        print("   Memory address: \(ObjectIdentifier(marginCanvas))")
+        print("   Initial tool: \(marginCanvas.tool)")
         print("🎛️ [LIFECYCLE]   About to call pinCanvas() for marginDrawingCanvas")
         pinCanvas(marginCanvas, to: containerView)
         marginCanvas.delegate = self
@@ -395,6 +406,11 @@ final class UnifiedBoardCanvasController: UIViewController {
         pdfCanvas.tool = defaultTool
         marginCanvas.tool = defaultTool
         previousTool = defaultTool
+        print("📍 [CANVAS] Set initial black tool")
+        print("   pdfCanvas address: \(ObjectIdentifier(pdfCanvas))")
+        print("   pdfCanvas.tool address: \(ObjectIdentifier(pdfCanvas.tool))")
+        print("   marginCanvas address: \(ObjectIdentifier(marginCanvas))")
+        print("   marginCanvas.tool address: \(ObjectIdentifier(marginCanvas.tool))")
 
         // ✅ CRITICAL: If a tool was previously selected, restore it now
         // This handles the case where canvases are recreated during page scrolling
@@ -403,6 +419,11 @@ final class UnifiedBoardCanvasController: UIViewController {
             pdfCanvas.tool = storedInkingTool
             marginCanvas.tool = storedInkingTool
             previousTool = storedInkingTool
+            print("📍 [CANVAS] Restored stored tool")
+            print("   pdfCanvas.tool address: \(ObjectIdentifier(pdfCanvas.tool))")
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0
+            storedInkingTool.color.getRed(&r, green: &g, blue: &b, alpha: nil)
+            print("   Tool color: R=\(Int(r*255)), G=\(Int(g*255)), B=\(Int(b*255))")
         } else if let storedEraserTool = currentEraserTool {
             print("🧹 [PERSISTENCE] Restoring stored eraser tool to newly created canvases")
             pdfCanvas.tool = storedEraserTool
@@ -424,6 +445,15 @@ final class UnifiedBoardCanvasController: UIViewController {
 
     /// Set canvas mode (drawing, selecting, idle)
     func setCanvasMode(_ mode: CanvasMode) {
+        print("📍 [MODE] setCanvasMode(\(mode))")
+        print("   pdfCanvas address: \(pdfDrawingCanvas.map { "\(ObjectIdentifier($0))" } ?? "NIL")")
+        print("   pdfCanvas.tool address: \(pdfDrawingCanvas?.tool.map { "\(ObjectIdentifier($0))" } ?? "NIL")")
+        if let tool = pdfDrawingCanvas?.tool as? PKInkingTool {
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0
+            tool.color.getRed(&r, green: &g, blue: &b, alpha: nil)
+            print("   Current tool color: R=\(Int(r*255)), G=\(Int(g*255)), B=\(Int(b*255))")
+        }
+
         self.canvasMode = mode
         updateCanvasInteractionState()
         onModeChanged?(mode)
@@ -935,8 +965,16 @@ extension UnifiedBoardCanvasController: PKCanvasViewDelegate {
         // DEBUG: Which canvas drew and what color?
         let whichCanvas = canvasView === pdfDrawingCanvas ? "PDF" : (canvasView === marginDrawingCanvas ? "MARGIN" : "UNKNOWN")
         print("✍️ [CANVAS DREW]")
+        print("   Canvas memory address: \(ObjectIdentifier(canvasView))")
         print("   Which canvas: \(whichCanvas)")
+        print("   Canvas.tool address: \(ObjectIdentifier(canvasView.tool))")
         print("   Canvas.tool: \(canvasView.tool)")
+
+        // ✅ Compare with stored references
+        if let pdf = pdfDrawingCanvas {
+            print("   pdfDrawingCanvas address: \(ObjectIdentifier(pdf))")
+            print("   Canvas is pdfDrawingCanvas: \(canvasView === pdf ? "✅ YES" : "❌ NO - DIFFERENT!")")
+        }
 
         if let tool = canvasView.tool as? PKInkingTool {
             var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0
@@ -1038,6 +1076,12 @@ extension UnifiedBoardCanvasController {
 
         let tool = PKInkingTool(ink, color: color, width: width)
 
+        // ✅ Track canvas and tool addresses before setting
+        print("🖊️ [CANVAS-TRACK] BEFORE setInkTool()")
+        print("   pdfCanvas address: \(pdfDrawingCanvas.map { "\(ObjectIdentifier($0))" } ?? "NIL")")
+        print("   pdfCanvas.tool address: \(pdfDrawingCanvas?.tool.map { "\(ObjectIdentifier($0))" } ?? "NIL")")
+        print("   New tool address: \(ObjectIdentifier(tool))")
+
         // ✅ CRITICAL: Store the tool so it persists if canvases are recreated
         currentInkingTool = tool
         currentEraserTool = nil
@@ -1045,6 +1089,12 @@ extension UnifiedBoardCanvasController {
         pdfDrawingCanvas?.tool = tool
         marginDrawingCanvas?.tool = tool
         previousTool = tool
+
+        // ✅ Track after setting
+        print("🖊️ [CANVAS-TRACK] AFTER setInkTool()")
+        print("   pdfCanvas address: \(pdfDrawingCanvas.map { "\(ObjectIdentifier($0))" } ?? "NIL")")
+        print("   pdfCanvas.tool address: \(pdfDrawingCanvas?.tool.map { "\(ObjectIdentifier($0))" } ?? "NIL")")
+        print("   Tool color: R=\(Int(r*255)), G=\(Int(g*255)), B=\(Int(b*255))")
 
         // Verify tools were actually set
         print("🖊️ setInkTool: \(ink.rawValue) width=\(width)")

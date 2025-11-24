@@ -221,6 +221,7 @@ final class UnifiedBoardCanvasController: UIViewController {
     }
 
     private func updateCanvasInteractionState() {
+        verifyToolOnCanvas("BEFORE updateCanvasInteractionState")
         let shouldInteract = (canvasMode == .drawing)
 
         pdfDrawingCanvas?.isUserInteractionEnabled = shouldInteract
@@ -240,12 +241,32 @@ final class UnifiedBoardCanvasController: UIViewController {
                 superview.bringSubviewToFront(canvas)
             }
         }
+        verifyToolOnCanvas("AFTER updateCanvasInteractionState")
     }
 
     /// Enable or disable drawing on PKCanvasViews
     func enableDrawing(_ enabled: Bool) {
         pdfDrawingCanvas?.isUserInteractionEnabled = enabled
         marginDrawingCanvas?.isUserInteractionEnabled = enabled
+    }
+
+    // MARK: - Tool Verification (temporary diagnostic)
+
+    private func verifyToolOnCanvas(_ label: String) {
+        print("🔍 [VERIFY] \(label)")
+
+        if let pdf = pdfDrawingCanvas {
+            print("   pdfCanvas exists: ✅ YES")
+            print("   pdfCanvas.tool address: \(ObjectIdentifier(pdf.tool))")
+
+            if let tool = pdf.tool as? PKInkingTool {
+                var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0
+                tool.color.getRed(&r, green: &g, blue: &b, alpha: nil)
+                print("   Tool color: R=\(Int(r*255)), G=\(Int(g*255)), B=\(Int(b*255))")
+            }
+        } else {
+            print("   pdfCanvas exists: ❌ NIL")
+        }
     }
 
     // MARK: - Touch Debugging
@@ -424,6 +445,7 @@ final class UnifiedBoardCanvasController: UIViewController {
 
     /// Set canvas mode (drawing, selecting, idle)
     func setCanvasMode(_ mode: CanvasMode) {
+        verifyToolOnCanvas("BEFORE setCanvasMode(\(mode))")
         self.canvasMode = mode
         updateCanvasInteractionState()
         onModeChanged?(mode)
@@ -433,6 +455,7 @@ final class UnifiedBoardCanvasController: UIViewController {
         } else {
             lassoController?.endLassoAndRestorePreviousTool()
         }
+        verifyToolOnCanvas("AFTER setCanvasMode(\(mode))")
     }
 
     /// Auto-switch to select mode (called after PaperKit item added)
@@ -932,6 +955,17 @@ enum PDFAlignment: Equatable {
 // MARK: - PKCanvasViewDelegate
 extension UnifiedBoardCanvasController: PKCanvasViewDelegate {
     func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
+        // ✅ Check what tool is about to draw
+        print("✍️ [DRAW-START] About to draw")
+        print("   canvasView address: \(ObjectIdentifier(canvasView))")
+        print("   canvasView.tool address: \(ObjectIdentifier(canvasView.tool))")
+
+        if let tool = canvasView.tool as? PKInkingTool {
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0
+            tool.color.getRed(&r, green: &g, blue: &b, alpha: nil)
+            print("   Tool about to draw: R=\(Int(r*255)), G=\(Int(g*255)), B=\(Int(b*255))")
+        }
+
         // DEBUG: Which canvas drew and what color?
         let whichCanvas = canvasView === pdfDrawingCanvas ? "PDF" : (canvasView === marginDrawingCanvas ? "MARGIN" : "UNKNOWN")
         print("✍️ [CANVAS DREW]")
@@ -1038,6 +1072,29 @@ extension UnifiedBoardCanvasController {
 
         let tool = PKInkingTool(ink, color: color, width: width)
 
+        print("🎨 [TOOL-ASSIGN] BEFORE assignment")
+        print("   tool address: \(ObjectIdentifier(tool))")
+        print("   tool color: \(tool.color)")
+        print("   pdfCanvas.tool address (before): \(pdfDrawingCanvas?.tool.map { ObjectIdentifier($0) }.map(String.init(describing:)) ?? "NIL")")
+
+        // Canvas validity check
+        print("🔍 pdfDrawingCanvas validity check:")
+        print("   pdfDrawingCanvas is nil: \(pdfDrawingCanvas == nil ? "YES ❌" : "NO ✅")")
+        print("   pdfDrawingCanvas actual: \(String(describing: pdfDrawingCanvas))")
+
+        // Try accessing the tool a different way
+        if let canvas = pdfDrawingCanvas {
+            print("   canvas.tool (direct access): \(canvas.tool)")
+            canvas.tool = tool
+            print("   canvas.tool (after assignment): \(canvas.tool)")
+
+            // Try reading it back immediately
+            let toolReadBack = canvas.tool
+            print("   toolReadBack address: \(ObjectIdentifier(toolReadBack))")
+            print("   tool address: \(ObjectIdentifier(tool))")
+            print("   Same object: \(ObjectIdentifier(toolReadBack) == ObjectIdentifier(tool) ? "✅ YES" : "❌ NO")")
+        }
+
         // ✅ CRITICAL: Store the tool so it persists if canvases are recreated
         currentInkingTool = tool
         currentEraserTool = nil
@@ -1045,6 +1102,19 @@ extension UnifiedBoardCanvasController {
         pdfDrawingCanvas?.tool = tool
         marginDrawingCanvas?.tool = tool
         previousTool = tool
+
+        print("🎨 [TOOL-ASSIGN] AFTER assignment")
+        print("   tool assigned: \(ObjectIdentifier(tool))")
+        print("   pdfCanvas.tool address (after): \(pdfDrawingCanvas?.tool.map { ObjectIdentifier($0) }.map(String.init(describing:)) ?? "NIL")")
+        print("   pdfCanvas.tool actual object: \(pdfDrawingCanvas?.tool.map(String.init(describing:)) ?? "NIL")")
+
+        // ✅ CRITICAL: Verify they match
+        if let canvas = pdfDrawingCanvas, let toolOnCanvas = canvas.tool as? PKInkingTool {
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0
+            toolOnCanvas.color.getRed(&r, green: &g, blue: &b, alpha: nil)
+            print("   VERIFICATION: Tool on canvas color: R=\(Int(r*255)), G=\(Int(g*255)), B=\(Int(b*255))")
+            print("   Assignment worked: \(ObjectIdentifier(toolOnCanvas) == ObjectIdentifier(tool) ? "✅ YES" : "❌ NO")")
+        }
 
         // Verify tools were actually set
         print("🖊️ setInkTool: \(ink.rawValue) width=\(width)")

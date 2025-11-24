@@ -248,22 +248,25 @@ final class UnifiedBoardCanvasController: UIViewController {
 
     // Debug touch routing
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        print("🔴 [CONTROLLER] touchesBegan - \(touches.count) touches")
+        print("🔴 [TOUCH] touchesBegan - \(touches.count) touches")
         if let touch = touches.first {
             let location = touch.location(in: view)
             print("   Location in view: \(location)")
-            print("   pdfCanvas frame: \(pdfDrawingCanvas?.frame ?? .zero)")
         }
 
-        // DEBUG: What tool is being used for drawing?
+        // DEBUG: Check BOTH canvas tools at touch time
+        print("   pdfCanvas.tool: \(pdfDrawingCanvas?.tool ?? PKInkingTool(.pen, color: .black, width: 1))")
         if let tool = pdfDrawingCanvas?.tool as? PKInkingTool {
             var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
             tool.color.getRed(&r, green: &g, blue: &b, alpha: &a)
-            print("🔍 [DRAWING] Using tool color: R=\(Int(r*255)), G=\(Int(g*255)), B=\(Int(b*255))")
-            print("   Tool ink type: \(tool.inkType.rawValue)")
-            print("   Tool width: \(tool.width)")
-        } else {
-            print("❌ [DRAWING] pdfDrawingCanvas.tool is NIL!")
+            print("   pdfCanvas tool color: R=\(Int(r*255)), G=\(Int(g*255)), B=\(Int(b*255))")
+        }
+
+        print("   marginCanvas.tool: \(marginDrawingCanvas?.tool ?? PKInkingTool(.pen, color: .black, width: 1))")
+        if let tool = marginDrawingCanvas?.tool as? PKInkingTool {
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            tool.color.getRed(&r, green: &g, blue: &b, alpha: &a)
+            print("   marginCanvas tool color: R=\(Int(r*255)), G=\(Int(g*255)), B=\(Int(b*255))")
         }
 
         super.touchesBegan(touches, with: event)
@@ -911,6 +914,25 @@ enum PDFAlignment: Equatable {
 // MARK: - PKCanvasViewDelegate
 extension UnifiedBoardCanvasController: PKCanvasViewDelegate {
     func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
+        // DEBUG: Which canvas drew and what color?
+        let whichCanvas = canvasView === pdfDrawingCanvas ? "PDF" : (canvasView === marginDrawingCanvas ? "MARGIN" : "UNKNOWN")
+        print("✍️ [CANVAS DREW]")
+        print("   Which canvas: \(whichCanvas)")
+        print("   Canvas.tool: \(canvasView.tool)")
+
+        if let tool = canvasView.tool as? PKInkingTool {
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0
+            tool.color.getRed(&r, green: &g, blue: &b, alpha: nil)
+            print("   Tool color: R=\(Int(r*255)), G=\(Int(g*255)), B=\(Int(b*255))")
+        }
+
+        print("   Drawing stroke count: \(canvasView.drawing.strokes.count)")
+        if let lastStroke = canvasView.drawing.strokes.last {
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0
+            lastStroke.ink.color.getRed(&r, green: &g, blue: &b, alpha: nil)
+            print("   Last stroke color: R=\(Int(r*255)), G=\(Int(g*255)), B=\(Int(b*255))")
+        }
+
         // Determine which canvas changed and save appropriately
         if canvasView === pdfDrawingCanvas {
             guard let transformer = transformer else { return }

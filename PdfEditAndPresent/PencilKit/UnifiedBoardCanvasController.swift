@@ -219,12 +219,16 @@ final class UnifiedBoardCanvasController: UIViewController {
     private func updateCanvasInteractionState() {
         let shouldInteract = (canvasMode == .drawing)
 
-        print("🎯 Canvas interaction: \(shouldInteract ? "ENABLED" : "DISABLED") (mode=\(canvasMode))")
-
         pdfDrawingCanvas?.isUserInteractionEnabled = shouldInteract
         marginDrawingCanvas?.isUserInteractionEnabled = shouldInteract
 
-        if !shouldInteract {
+        if shouldInteract {
+            pdfDrawingCanvas?.becomeFirstResponder()
+            marginDrawingCanvas?.becomeFirstResponder()
+            if let toolPicker = pencilKitToolPicker, let canvas = pdfDrawingCanvas {
+                toolPicker.setVisible(false, forFirstResponder: canvas)
+            }
+        } else {
             pdfDrawingCanvas?.resignFirstResponder()
             marginDrawingCanvas?.resignFirstResponder()
         }
@@ -336,7 +340,6 @@ final class UnifiedBoardCanvasController: UIViewController {
         // Enable multi-touch for both canvases
         pdfCanvas.isMultipleTouchEnabled = true
         marginCanvas.isMultipleTouchEnabled = true
-        pdfCanvas.becomeFirstResponder()
 
         // Initialize lasso controller with the active canvas
         lassoController = PKLassoSelectionController(canvasView: pdfCanvas)
@@ -686,24 +689,20 @@ final class UnifiedBoardCanvasController: UIViewController {
     private func updateGestureRouting() {
         switch canvasMode {
         case .drawing:
+            print("🖊️ Drawing mode - enabling PKCanvasView")
             enableDrawing(true)
             paperKitView?.isUserInteractionEnabled = false
-            // Keep interceptor enabled to observe and flip to select
             modeInterceptor.isUserInteractionEnabled = true
-            print("🖊️ Drawing mode active — PKCanvasViews enabled")
-            print("🎯 pdfCanvas isUserInteractionEnabled=\(pdfDrawingCanvas?.isUserInteractionEnabled ?? false)")
-
         case .selecting:
+            print("🎯 Selecting mode - enabling PaperKit")
             enableDrawing(false)
             paperKitView?.isUserInteractionEnabled = true
             modeInterceptor.isUserInteractionEnabled = true
-            print("Select mode: PaperKit enabled")
-
         case .idle:
+            print("🛑 Idle mode - all disabled")
             enableDrawing(false)
             paperKitView?.isUserInteractionEnabled = false
             modeInterceptor.isUserInteractionEnabled = false
-            print("Idle mode: All disabled")
         }
     }
 

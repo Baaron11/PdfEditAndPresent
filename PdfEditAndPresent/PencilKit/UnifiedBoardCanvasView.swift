@@ -86,10 +86,10 @@ struct UnifiedBoardCanvasView: UIViewControllerRepresentable {
 
         // Emit tool API
         let api = UnifiedBoardToolAPI(
-            setInkTool: { [weak controller] ink, color, width in controller?.setInkTool(ink, color: color, width: width) },
+            setInkTool: { [weak controller] ink, color, width in controller?.setInk(ink: ink, color: color, width: width) },
             setEraser: { [weak controller] in controller?.setEraser() },
-            beginLasso: { [weak controller] in controller?.beginLassoSelection() },
-            endLasso: { [weak controller] in controller?.endLassoSelection() },
+            beginLasso: { [weak controller] in controller?.beginLasso() },
+            endLasso: { [weak controller] in controller?.endLasso() },
             undo: { [weak controller] in controller?.undo() },
             redo: { [weak controller] in controller?.redo() }
         )

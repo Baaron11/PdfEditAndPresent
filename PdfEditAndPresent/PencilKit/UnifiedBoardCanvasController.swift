@@ -75,12 +75,11 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
     // Previous tool for lasso restore
     private var previousTool: PKTool?
 
-    // ✅ Store the current tool so it persists if canvases are recreated (continuous scroll)
-    private var currentInkingTool: PKInkingTool?
-    private var currentEraserTool: PKEraserTool?
+    // 🔗 SHARED TOOL STATE: Reference to DrawingViewModel for accessing shared tool state
+    weak var toolStateProvider: DrawingViewModel?
 
-    // Backup of tool state when entering lasso - preserved across lasso flow
-    private var toolBeforeLasso: PKTool?
+    // ⚠️ ERASER ONLY: Keep eraser state local (NOT shared) - used internally for lasso flow
+    private var currentEraserTool: PKEraserTool?
     private var eraserBeforeLasso: PKEraserTool?
 
     // PDFManager reference for querying page sizes
@@ -395,11 +394,11 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
         print("🎛️ [LIFECYCLE]   Current pageRotation: \(currentPageRotation)°")
 
         // ⚠️ CRITICAL: Preserve tool state BEFORE destroying canvases
-        // If we already have a tool selected, save it so we can restore it to the new canvases
+        // First try to get from SHARED state (DrawingViewModel), then fall back to eraser
         let toolToRestore: PKTool?
-        if let inked = currentInkingTool {
-            print("💾 [PRESERVE] Saving currentInkingTool before canvas destruction")
-            toolToRestore = inked
+        if let sharedInkingTool = toolStateProvider?.sharedCurrentInkingTool {
+            print("💾 [PRESERVE] 🔗 Using sharedCurrentInkingTool from DrawingViewModel")
+            toolToRestore = sharedInkingTool
         } else if let eraser = currentEraserTool {
             print("💾 [PRESERVE] Saving currentEraserTool before canvas destruction")
             toolToRestore = eraser
@@ -457,9 +456,9 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
             print("✨ [RESTORE] Restoring saved tool to newly created canvases")
             if let inked = savedTool as? PKInkingTool {
                 print("   Restoring inking tool: \(toolDescription(inked))")
+                print("   ✅ Restored from SHARED state (DrawingViewModel)")
                 pdfCanvas.tool = inked
                 marginCanvas.tool = inked
-                currentInkingTool = inked
                 previousTool = inked
             } else if let eraser = savedTool as? PKEraserTool {
                 print("   Restoring eraser tool")
@@ -468,15 +467,9 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
                 currentEraserTool = eraser
                 previousTool = eraser
             }
-        } else if let storedInkingTool = currentInkingTool {
-            // Fallback: also check if currentInkingTool somehow still exists
-            print("✨ [RESTORE] Fallback: Restoring currentInkingTool (should not reach here)")
-            pdfCanvas.tool = storedInkingTool
-            marginCanvas.tool = storedInkingTool
-            previousTool = storedInkingTool
         } else if let storedEraserTool = currentEraserTool {
-            // Fallback: also check if currentEraserTool somehow still exists
-            print("✨ [RESTORE] Fallback: Restoring currentEraserTool (should not reach here)")
+            // Fallback: use eraser if available
+            print("✨ [RESTORE] Fallback: Restoring currentEraserTool")
             pdfCanvas.tool = storedEraserTool
             marginCanvas.tool = storedEraserTool
             previousTool = storedEraserTool
@@ -568,7 +561,7 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
     /// Set canvas mode (drawing, selecting, idle)
     func setCanvasMode(_ mode: CanvasMode) {
         print("📍 [MODE-CHANGE] setCanvasMode(\(mode))")
-        print("   currentInkingTool: \(currentInkingTool != nil ? "✅ SET" : "❌ NIL")")
+        print("   sharedCurrentInkingTool: \(toolStateProvider?.sharedCurrentInkingTool != nil ? "✅ SET" : "❌ NIL")")
 
         verifyToolOnCanvas("BEFORE setCanvasMode(\(mode))")
         self.canvasMode = mode
@@ -582,12 +575,12 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
 
             // CRITICAL: Save current tool state before entering lasso
             // We'll restore this manually, NOT using lasso's restoration
-            if let inked = currentInkingTool {
-                toolBeforeLasso = inked
-                print("      ✅ Saved inking tool: \(toolDescription(inked))")
+            if let inked = toolStateProvider?.sharedCurrentInkingTool {
+                toolStateProvider?.sharedToolBeforeLasso = inked
+                print("      ✅ Saved inking tool to SHARED state: \(toolDescription(inked))")
             } else if let eraser = currentEraserTool {
                 eraserBeforeLasso = eraser
-                print("      ✅ Saved eraser tool")
+                print("      ✅ Saved eraser tool (local)")
             }
 
             lassoController?.beginLasso()
@@ -599,32 +592,29 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
 
               // ✅ CRITICAL: Immediately override with the tool we saved BEFORE entering lasso
               // This prevents the lasso controller's default restoration from sticking
-              if let savedInkingTool = toolBeforeLasso as? PKInkingTool {
-                  print("   ✅ Restoring saved inking tool from before lasso")
+              if let savedInkingTool = toolStateProvider?.sharedToolBeforeLasso {
+                  print("   ✅ Restoring saved inking tool from SHARED state before lasso")
                   print("      Restored: \(toolDescription(savedInkingTool))")
                   pdfDrawingCanvas?.tool = savedInkingTool
                   marginDrawingCanvas?.tool = savedInkingTool
-                  currentInkingTool = savedInkingTool
                   currentEraserTool = nil
                   previousTool = savedInkingTool
               } else if let savedEraserTool = eraserBeforeLasso {
-                  print("   ✅ Restoring saved eraser tool from before lasso")
+                  print("   ✅ Restoring saved eraser tool from before lasso (local)")
                   pdfDrawingCanvas?.tool = savedEraserTool
                   marginDrawingCanvas?.tool = savedEraserTool
                   currentEraserTool = savedEraserTool
-                  currentInkingTool = nil
                   previousTool = savedEraserTool
               } else {
                   print("   ⚠️ No tool was saved before lasso, using black pen default")
                   let defaultTool = PKInkingTool(.pen, color: .black, width: 2)
                   pdfDrawingCanvas?.tool = defaultTool
                   marginDrawingCanvas?.tool = defaultTool
-                  currentInkingTool = defaultTool
                   previousTool = defaultTool
               }
 
               // Clear backup after restore
-              toolBeforeLasso = nil
+              toolStateProvider?.sharedToolBeforeLasso = nil
               eraserBeforeLasso = nil
           }
 
@@ -1401,9 +1391,10 @@ extension UnifiedBoardCanvasController {
             }
         }
 
-        // ✅ Store the tool so it persists if canvases are recreated
-        currentInkingTool = tool
-        toolBeforeLasso = tool 
+        // 🔗 UPDATE SHARED STATE: Store the tool in DrawingViewModel so all controllers use it
+        print("   🔗 [SHARED-STATE] Updating toolStateProvider.sharedCurrentInkingTool")
+        toolStateProvider?.sharedCurrentInkingTool = tool
+
         currentEraserTool = nil
 
         pdfDrawingCanvas?.tool = tool
@@ -1423,7 +1414,7 @@ extension UnifiedBoardCanvasController {
         print("🖊️ setInkTool: \(ink.rawValue) width=\(width)")
         print("   pdfCanvas.tool: \(pdfDrawingCanvas?.tool != nil ? "✅ SET" : "❌ NIL")")
         print("   marginCanvas.tool: \(marginDrawingCanvas?.tool != nil ? "✅ SET" : "❌ NIL")")
-        print("   ✅ Stored in currentInkingTool for persistence")
+        print("   ✅ Stored in SHARED state (DrawingViewModel) for persistence")
 
         // ⏱️ DIAGNOSTIC: Schedule a check 100ms later to see if tool is still set
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {

@@ -91,7 +91,7 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
 
     // MARK: - Initialization
 
-    override func viewDidLoad() {
+   public override func viewDidLoad() {
         super.viewDidLoad()
         print("UnifiedBoardCanvasController viewDidLoad")
         view.backgroundColor = .clear
@@ -102,7 +102,7 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
         print("Setup complete")
     }
 
-    override func viewDidAppear(_ animated: Bool) {
+    public override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         print("UnifiedBoardCanvasController viewDidAppear - actual bounds: \(view.bounds)")
 
@@ -134,7 +134,7 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
         debugCanvasLayout(label: "viewDidAppear")
     }
 
-    override func viewDidLayoutSubviews() {
+    public override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         print("📍 [LAYOUT] viewDidLayoutSubviews() called")
         print("📍 [LAYOUT]   containerView.bounds: \(containerView.bounds)")
@@ -295,7 +295,7 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
     // MARK: - Touch Debugging
 
     // Debug touch routing
-    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+    public override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         print("🖱️ [TOUCH-BEGIN] Tool at touch start: \(toolDescription(pdfDrawingCanvas?.tool))")
         print("🔴 [TOUCH] touchesBegan - \(touches.count) touches")
         if let touch = touches.first {
@@ -310,12 +310,12 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
         super.touchesBegan(touches, with: event)
     }
 
-    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+    public override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         print("🔴 [CONTROLLER] touchesMoved - \(touches.count) touches")
         super.touchesMoved(touches, with: event)
     }
 
-    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+    public override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         print("🔴 [CONTROLLER] touchesEnded - \(touches.count) touches")
         super.touchesEnded(touches, with: event)
     }
@@ -394,6 +394,20 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
         print("🎛️ [LIFECYCLE]   Current canvasSize: \(canvasSize.width) x \(canvasSize.height)")
         print("🎛️ [LIFECYCLE]   Current pageRotation: \(currentPageRotation)°")
 
+        // ⚠️ CRITICAL: Preserve tool state BEFORE destroying canvases
+        // If we already have a tool selected, save it so we can restore it to the new canvases
+        let toolToRestore: PKTool?
+        if let inked = currentInkingTool {
+            print("💾 [PRESERVE] Saving currentInkingTool before canvas destruction")
+            toolToRestore = inked
+        } else if let eraser = currentEraserTool {
+            print("💾 [PRESERVE] Saving currentEraserTool before canvas destruction")
+            toolToRestore = eraser
+        } else {
+            print("ℹ️ [PRESERVE] No tool to preserve, will use default black pen")
+            toolToRestore = nil
+        }
+
         // Clean up old canvases
         pdfDrawingCanvas?.removeFromSuperview()
         marginDrawingCanvas?.removeFromSuperview()
@@ -431,21 +445,38 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
         // Reconfigure canvas constraints to match current page size
         reconfigureCanvasConstraints()
 
-        // Set initial tool
+        // Set initial tool (default black)
         let defaultTool = PKInkingTool(.pen, color: .black, width: 2)
         pdfCanvas.tool = defaultTool
         marginCanvas.tool = defaultTool
         previousTool = defaultTool
 
-        // ✅ CRITICAL: If a tool was previously selected, restore it now
-        // This handles the case where canvases are recreated during page scrolling
-        if let storedInkingTool = currentInkingTool {
-            print("🎨 [PERSISTENCE] Restoring stored inking tool to newly created canvases")
+        // ✅ CRITICAL: Restore the tool that was saved BEFORE canvas destruction
+        // This ensures tool selection persists across page navigation
+        if let savedTool = toolToRestore {
+            print("✨ [RESTORE] Restoring saved tool to newly created canvases")
+            if let inked = savedTool as? PKInkingTool {
+                print("   Restoring inking tool: \(toolDescription(inked))")
+                pdfCanvas.tool = inked
+                marginCanvas.tool = inked
+                currentInkingTool = inked
+                previousTool = inked
+            } else if let eraser = savedTool as? PKEraserTool {
+                print("   Restoring eraser tool")
+                pdfCanvas.tool = eraser
+                marginCanvas.tool = eraser
+                currentEraserTool = eraser
+                previousTool = eraser
+            }
+        } else if let storedInkingTool = currentInkingTool {
+            // Fallback: also check if currentInkingTool somehow still exists
+            print("✨ [RESTORE] Fallback: Restoring currentInkingTool (should not reach here)")
             pdfCanvas.tool = storedInkingTool
             marginCanvas.tool = storedInkingTool
             previousTool = storedInkingTool
         } else if let storedEraserTool = currentEraserTool {
-            print("🧹 [PERSISTENCE] Restoring stored eraser tool to newly created canvases")
+            // Fallback: also check if currentEraserTool somehow still exists
+            print("✨ [RESTORE] Fallback: Restoring currentEraserTool (should not reach here)")
             pdfCanvas.tool = storedEraserTool
             marginCanvas.tool = storedEraserTool
             previousTool = storedEraserTool
@@ -469,6 +500,72 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
     }
 
     /// Set canvas mode (drawing, selecting, idle)
+//    func setCanvasMode(_ mode: CanvasMode) {
+//        print("📍 [MODE-CHANGE] setCanvasMode(\(mode))")
+//        print("   currentInkingTool: \(currentInkingTool != nil ? "✅ SET" : "❌ NIL")")
+//
+//        verifyToolOnCanvas("BEFORE setCanvasMode(\(mode))")
+//        self.canvasMode = mode
+//        updateCanvasInteractionState()
+//        onModeChanged?(mode)
+//        onCanvasModeChanged?(mode)
+//
+//        if mode == .selecting {
+//            print("   Entering SELECTING mode - starting lasso")
+//            print("   💾 Saving tool before lasso...")
+//
+//            // CRITICAL: Save current tool state before entering lasso
+//            // The lasso flow will clear currentInkingTool, so we need this backup
+//            if let currentTool = pdfDrawingCanvas?.tool {
+//                toolBeforeLasso = currentTool
+//                print("      ✅ Saved: \(toolDescription(currentTool))")
+//            }
+//
+//            lassoController?.beginLasso()
+//        } else {
+//            print("   Exiting SELECTING mode - ending lasso")
+//            lassoController?.endLassoAndRestorePreviousTool()
+//
+//            // ✅ TRY #1: Restore currentInkingTool if still available
+//            if let currentTool = currentInkingTool {
+//                print("   ✅ Restoring to currentInkingTool (still available)")
+//                pdfDrawingCanvas?.tool = currentTool
+//                marginDrawingCanvas?.tool = currentTool
+//                previousTool = currentTool
+//            }
+//            // ✅ TRY #2: Restore currentEraserTool if still available
+//            else if let currentEraser = currentEraserTool {
+//                print("   ✅ Restoring to currentEraserTool (still available)")
+//                pdfDrawingCanvas?.tool = currentEraser
+//                marginDrawingCanvas?.tool = currentEraser
+//                previousTool = currentEraser
+//            }
+//            // ✅ TRY #3: Restore from backup if tool was lost by lasso flow
+//            else if let backupTool = toolBeforeLasso {
+//                print("   ⚠️ currentInkingTool was lost by lasso, restoring from backup")
+//                print("      Restored: \(toolDescription(backupTool))")
+//                pdfDrawingCanvas?.tool = backupTool
+//                marginDrawingCanvas?.tool = backupTool
+//                previousTool = backupTool
+//                // Try to restore currentInkingTool from the backup
+//                if backupTool is PKEraserTool {
+//                    currentEraserTool = backupTool as? PKEraserTool
+//                } else {
+//                    currentInkingTool = backupTool as? PKInkingTool
+//                }
+//            } else {
+//                print("   ⚠️ Could not restore tool - no backup available!")
+//            }
+//
+//            // Clear backup after restore
+//            toolBeforeLasso = nil
+//            eraserBeforeLasso = nil
+//        }
+//
+//        verifyToolOnCanvas("AFTER setCanvasMode(\(mode))")
+//    }
+    
+    /// Set canvas mode (drawing, selecting, idle)
     func setCanvasMode(_ mode: CanvasMode) {
         print("📍 [MODE-CHANGE] setCanvasMode(\(mode))")
         print("   currentInkingTool: \(currentInkingTool != nil ? "✅ SET" : "❌ NIL")")
@@ -484,52 +581,52 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
             print("   💾 Saving tool before lasso...")
 
             // CRITICAL: Save current tool state before entering lasso
-            // The lasso flow will clear currentInkingTool, so we need this backup
-            if let currentTool = pdfDrawingCanvas?.tool {
-                toolBeforeLasso = currentTool
-                print("      ✅ Saved: \(toolDescription(currentTool))")
+            // We'll restore this manually, NOT using lasso's restoration
+            if let inked = currentInkingTool {
+                toolBeforeLasso = inked
+                print("      ✅ Saved inking tool: \(toolDescription(inked))")
+            } else if let eraser = currentEraserTool {
+                eraserBeforeLasso = eraser
+                print("      ✅ Saved eraser tool")
             }
 
             lassoController?.beginLasso()
         } else {
-            print("   Exiting SELECTING mode - ending lasso")
-            lassoController?.endLassoAndRestorePreviousTool()
+              print("   Exiting SELECTING mode - ending lasso")
+              // Call the lasso controller's restore method (it will restore *something*)
+              // But we'll immediately override it with our saved tool
+              lassoController?.endLassoAndRestorePreviousTool()
 
-            // ✅ TRY #1: Restore currentInkingTool if still available
-            if let currentTool = currentInkingTool {
-                print("   ✅ Restoring to currentInkingTool (still available)")
-                pdfDrawingCanvas?.tool = currentTool
-                marginDrawingCanvas?.tool = currentTool
-                previousTool = currentTool
-            }
-            // ✅ TRY #2: Restore currentEraserTool if still available
-            else if let currentEraser = currentEraserTool {
-                print("   ✅ Restoring to currentEraserTool (still available)")
-                pdfDrawingCanvas?.tool = currentEraser
-                marginDrawingCanvas?.tool = currentEraser
-                previousTool = currentEraser
-            }
-            // ✅ TRY #3: Restore from backup if tool was lost by lasso flow
-            else if let backupTool = toolBeforeLasso {
-                print("   ⚠️ currentInkingTool was lost by lasso, restoring from backup")
-                print("      Restored: \(toolDescription(backupTool))")
-                pdfDrawingCanvas?.tool = backupTool
-                marginDrawingCanvas?.tool = backupTool
-                previousTool = backupTool
-                // Try to restore currentInkingTool from the backup
-                if backupTool is PKEraserTool {
-                    currentEraserTool = backupTool as? PKEraserTool
-                } else {
-                    currentInkingTool = backupTool as? PKInkingTool
-                }
-            } else {
-                print("   ⚠️ Could not restore tool - no backup available!")
-            }
+              // ✅ CRITICAL: Immediately override with the tool we saved BEFORE entering lasso
+              // This prevents the lasso controller's default restoration from sticking
+              if let savedInkingTool = toolBeforeLasso as? PKInkingTool {
+                  print("   ✅ Restoring saved inking tool from before lasso")
+                  print("      Restored: \(toolDescription(savedInkingTool))")
+                  pdfDrawingCanvas?.tool = savedInkingTool
+                  marginDrawingCanvas?.tool = savedInkingTool
+                  currentInkingTool = savedInkingTool
+                  currentEraserTool = nil
+                  previousTool = savedInkingTool
+              } else if let savedEraserTool = eraserBeforeLasso {
+                  print("   ✅ Restoring saved eraser tool from before lasso")
+                  pdfDrawingCanvas?.tool = savedEraserTool
+                  marginDrawingCanvas?.tool = savedEraserTool
+                  currentEraserTool = savedEraserTool
+                  currentInkingTool = nil
+                  previousTool = savedEraserTool
+              } else {
+                  print("   ⚠️ No tool was saved before lasso, using black pen default")
+                  let defaultTool = PKInkingTool(.pen, color: .black, width: 2)
+                  pdfDrawingCanvas?.tool = defaultTool
+                  marginDrawingCanvas?.tool = defaultTool
+                  currentInkingTool = defaultTool
+                  previousTool = defaultTool
+              }
 
-            // Clear backup after restore
-            toolBeforeLasso = nil
-            eraserBeforeLasso = nil
-        }
+              // Clear backup after restore
+              toolBeforeLasso = nil
+              eraserBeforeLasso = nil
+          }
 
         verifyToolOnCanvas("AFTER setCanvasMode(\(mode))")
     }
@@ -1184,12 +1281,93 @@ extension UnifiedBoardCanvasController {
         }
     }
 
+//    func setInk(ink: PKInkingTool.InkType, color: UIColor, width: CGFloat) {
+//        // DEBUG: What color is the toolbar actually sending?
+//        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+//        color.getRed(&r, green: &g, blue: &b, alpha: &a)
+//
+//        print("🎨 [TOOLBAR] Sent color: R=\(Int(r*255)), G=\(Int(g*255)), B=\(Int(b*255)), A=\(Int(a*255))")
+//
+//        let tool = PKInkingTool(ink, color: color, width: width)
+//
+//        print("🎨 [TOOL-ASSIGN] BEFORE assignment")
+//        print("   New tool: \(ink.rawValue), color RGB(\(Int(r*255)), \(Int(g*255)), \(Int(b*255))), width=\(width)")
+//
+//        // Check what tool is currently on canvas
+//        if let currentTool = pdfDrawingCanvas?.tool as? PKInkingTool {
+//            var cr: CGFloat = 0, cg: CGFloat = 0, cb: CGFloat = 0
+//            currentTool.color.getRed(&cr, green: &cg, blue: &cb, alpha: nil)
+//            print("   Current tool on canvas: \(currentTool.inkType.rawValue), color RGB(\(Int(cr*255)), \(Int(cg*255)), \(Int(cb*255)))")
+//        }
+//
+//        // Canvas validity check
+//        print("🔍 pdfDrawingCanvas validity check:")
+//        print("   pdfDrawingCanvas is nil: \(pdfDrawingCanvas == nil ? "YES ❌" : "NO ✅")")
+//
+//        // Try assigning with direct reference
+//        if let canvas = pdfDrawingCanvas {
+//            canvas.tool = tool
+//
+//            // Read back immediately to verify
+//            if let toolReadBack = canvas.tool as? PKInkingTool {
+//                var tbr: CGFloat = 0, tbg: CGFloat = 0, tbb: CGFloat = 0
+//                toolReadBack.color.getRed(&tbr, green: &tbg, blue: &tbb, alpha: nil)
+//                let readBackColor = "RGB(\(Int(tbr*255)), \(Int(tbg*255)), \(Int(tbb*255)))"
+//                let setColor = "RGB(\(Int(r*255)), \(Int(g*255)), \(Int(b*255)))"
+//                print("   ✅ Tool assigned to canvas")
+//                print("   Set color: \(setColor)")
+//                print("   Read back color: \(readBackColor)")
+//                print("   Colors match: \(readBackColor == setColor ? "✅ YES" : "❌ NO")")
+//            }
+//        }
+//
+//        // ✅ CRITICAL: Store the tool so it persists if canvases are recreated
+//        currentInkingTool = tool
+//        currentEraserTool = nil
+//
+//        pdfDrawingCanvas?.tool = tool
+//        marginDrawingCanvas?.tool = tool
+//        previousTool = tool
+//
+//        print("🎨 [TOOL-ASSIGN] AFTER assignment")
+//
+//        // Final verification
+//        if let canvas = pdfDrawingCanvas, let finalTool = canvas.tool as? PKInkingTool {
+//            var fr: CGFloat = 0, fg: CGFloat = 0, fb: CGFloat = 0
+//            finalTool.color.getRed(&fr, green: &fg, blue: &fb, alpha: nil)
+//            print("   Final tool on canvas: \(finalTool.inkType.rawValue), color RGB(\(Int(fr*255)), \(Int(fg*255)), \(Int(fb*255)))")
+//        }
+//
+//        // Verify tools were actually set
+//        print("🖊️ setInkTool: \(ink.rawValue) width=\(width)")
+//        print("   pdfCanvas.tool: \(pdfDrawingCanvas?.tool != nil ? "✅ SET" : "❌ NIL")")
+//        print("   marginCanvas.tool: \(marginDrawingCanvas?.tool != nil ? "✅ SET" : "❌ NIL")")
+//        print("   ✅ Stored in currentInkingTool for persistence")
+//
+//        // ⏱️ DIAGNOSTIC: Schedule a check 100ms later to see if tool is still set
+//        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+//            if let currentTool = self.pdfDrawingCanvas?.tool {
+//                print("⏱️ [100ms LATER] Tool still set: \(self.toolDescription(currentTool))")
+//            } else {
+//                print("⏱️ [100ms LATER] Tool is now NIL!")
+//            }
+//        }
+//
+//        // ⏱️ Check immediately at next runloop iteration
+//        DispatchQueue.main.async {
+//            if let currentTool = self.pdfDrawingCanvas?.tool {
+//                print("⏱️ [NEXT RUNLOOP] Tool after setInkTool: \(self.toolDescription(currentTool))")
+//            }
+//        }
+//
+//        // NO setCanvasMode() call - toolbar callback controls mode
+//    }
+
     func setInk(ink: PKInkingTool.InkType, color: UIColor, width: CGFloat) {
-        // DEBUG: What color is the toolbar actually sending?
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         color.getRed(&r, green: &g, blue: &b, alpha: &a)
 
-        print("🎨 [TOOLBAR] Sent color: R=\(Int(r*255)), G=\(Int(g*255)), B=\(Int(b*255)), A=\(Int(a*255))")
+        print("🎨 [TOOLBAR] Sent color: R=\(Int(r*255)), G=\(Int(g*255)), B=\(Int(b*255))")
 
         let tool = PKInkingTool(ink, color: color, width: width)
 
@@ -1203,11 +1381,10 @@ extension UnifiedBoardCanvasController {
             print("   Current tool on canvas: \(currentTool.inkType.rawValue), color RGB(\(Int(cr*255)), \(Int(cg*255)), \(Int(cb*255)))")
         }
 
-        // Canvas validity check
         print("🔍 pdfDrawingCanvas validity check:")
         print("   pdfDrawingCanvas is nil: \(pdfDrawingCanvas == nil ? "YES ❌" : "NO ✅")")
 
-        // Try assigning with direct reference
+        // Assign to both canvases
         if let canvas = pdfDrawingCanvas {
             canvas.tool = tool
 
@@ -1224,8 +1401,9 @@ extension UnifiedBoardCanvasController {
             }
         }
 
-        // ✅ CRITICAL: Store the tool so it persists if canvases are recreated
+        // ✅ Store the tool so it persists if canvases are recreated
         currentInkingTool = tool
+        toolBeforeLasso = tool 
         currentEraserTool = nil
 
         pdfDrawingCanvas?.tool = tool
@@ -1262,14 +1440,30 @@ extension UnifiedBoardCanvasController {
                 print("⏱️ [NEXT RUNLOOP] Tool after setInkTool: \(self.toolDescription(currentTool))")
             }
         }
-
-        // NO setCanvasMode() call - toolbar callback controls mode
     }
-
+    
+//    func setEraser() {
+//        let eraser = PKEraserTool(.vector)
+//
+//        // ✅ CRITICAL: Store the eraser so it persists if canvases are recreated
+//        currentEraserTool = eraser
+//        currentInkingTool = nil
+//
+//        pdfDrawingCanvas?.tool = eraser
+//        marginDrawingCanvas?.tool = eraser
+//        previousTool = eraser  // ✅ FIX: Update previousTool so lasso restore uses eraser
+//
+//        // Verify tools were actually set
+//        print("🧽 setEraser")
+//        print("   pdfCanvas.tool: \(pdfDrawingCanvas?.tool != nil ? "✅ SET" : "❌ NIL")")
+//        print("   marginCanvas.tool: \(marginDrawingCanvas?.tool != nil ? "✅ SET" : "❌ NIL")")
+//        // NO setCanvasMode() call - toolbar callback controls mode
+//    }
+    
     func setEraser() {
         let eraser = PKEraserTool(.vector)
 
-        // ✅ CRITICAL: Store the eraser so it persists if canvases are recreated
+        // ✅ Store the eraser so it persists if canvases are recreated
         currentEraserTool = eraser
         currentInkingTool = nil
 
@@ -1281,7 +1475,6 @@ extension UnifiedBoardCanvasController {
         print("🧽 setEraser")
         print("   pdfCanvas.tool: \(pdfDrawingCanvas?.tool != nil ? "✅ SET" : "❌ NIL")")
         print("   marginCanvas.tool: \(marginDrawingCanvas?.tool != nil ? "✅ SET" : "❌ NIL")")
-        // NO setCanvasMode() call - toolbar callback controls mode
     }
 
     func beginLasso() {

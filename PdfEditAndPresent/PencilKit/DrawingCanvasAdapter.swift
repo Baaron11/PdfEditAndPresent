@@ -17,45 +17,37 @@ protocol DrawingCanvasAPI: AnyObject {
 
 final class UnifiedBoardCanvasAdapter: DrawingCanvasAPI {
     private let api: UnifiedBoardToolAPI
-    private var canvasController: UnifiedBoardCanvasController?
+    private weak var canvasController: UnifiedBoardCanvasController?
 
     init(api: UnifiedBoardToolAPI, controller: UnifiedBoardCanvasController? = nil) {
         self.api = api
-        if let controller = controller {
-            self.canvasController = controller
-            print("✅ [ADAPTER-INIT] Controller attached directly in init - no casting needed")
+        self.canvasController = controller
+        if controller != nil {
+            print("✅ [ADAPTER-INIT] Weak reference to controller established")
         } else {
             print("⚠️ [ADAPTER-INIT] Controller not provided to adapter")
         }
     }
 
-    /// Attach the controller to establish strong reference after initialization
-    /// This ensures the adapter persists through SwiftUI re-renders
-    func attachController(_ controller: UnifiedBoardCanvasController) {
-        self.canvasController = controller
-        print("🔗 Adapter attached to controller (strong reference)")
-    }
-
     func setInk(ink: PKInkingTool.InkType, color: UIColor, width: CGFloat) {
-        guard let controller = canvasController else {
-            print("⚠️ [ADAPTER] Controller not attached, cannot set ink")
+        guard canvasController != nil else {
+            print("⚠️ [ADAPTER] Controller is no longer available (weak reference released), cannot set ink")
             return
         }
 
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         color.getRed(&r, green: &g, blue: &b, alpha: &a)
-        print("🖊️ [ADAPTER] Setting ink through controller: \(ink.rawValue) width=\(width)")
-        print("   Color at adapter: R=\(Int(r*255)), G=\(Int(g*255)), B=\(Int(b*255))")
+        print("🖊️ [ADAPTER] Setting ink with color: R=\(Int(r*255)), G=\(Int(g*255)), B=\(Int(b*255))")
         api.setInkTool(ink, color, width)
     }
 
     func setEraser() {
-        guard let controller = canvasController else {
-            print("⚠️ [ADAPTER] Controller not attached, cannot set eraser")
+        guard canvasController != nil else {
+            print("⚠️ [ADAPTER] Controller is no longer available (weak reference released), cannot set eraser")
             return
         }
 
-        print("🧽 [ADAPTER] Setting eraser through controller")
+        print("🧽 [ADAPTER] Setting eraser")
         api.setEraser()
     }
 
@@ -85,7 +77,6 @@ final class UnifiedBoardCanvasAdapter: DrawingCanvasAPI {
     }
 
     deinit {
-        print("🧹 UnifiedBoardCanvasAdapter deinit - breaking controller reference")
-        canvasController = nil
+        print("🧹 UnifiedBoardCanvasAdapter deinit - weak controller reference will be auto-released")
     }
 }

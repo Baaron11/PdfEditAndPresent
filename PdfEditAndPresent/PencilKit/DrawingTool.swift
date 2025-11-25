@@ -77,6 +77,13 @@ final class DrawingViewModel: ObservableObject {
     // MARK: - Canvas Adapter (for DrawingToolbar integration)
     private weak var canvasAdapter: DrawingCanvasAPI?
 
+    // MARK: - Shared Tool State (across all canvas controllers in continuous scroll)
+    @Published var sharedCurrentInkingTool: PKInkingTool?
+    @Published var sharedToolBeforeLasso: PKInkingTool?
+
+    // Callback when tool changes - notifies canvas controllers
+    var onToolChanged: ((PKInkingTool?) -> Void)?
+
     // MARK: - Init
     init() { }
 
@@ -404,6 +411,15 @@ final class DrawingViewModel: ObservableObject {
         } else {
             print("   Calling: canvasAdapter?.setInk()")
             canvasAdapter?.setInk(ink: brush.type.inkType, color: brush.color.uiColor, width: brush.width)
+
+            // 📡 UPDATE SHARED TOOL STATE: Store the tool in shared state for cross-controller use
+            let newTool = PKInkingTool(brush.type.inkType, color: brush.color.uiColor, width: brush.width)
+            print("   🔄 [SHARED-STATE] Updating sharedCurrentInkingTool")
+            self.sharedCurrentInkingTool = newTool
+
+            // 📡 Notify all controllers that the tool has changed
+            print("   📡 [CALLBACK] Calling onToolChanged callback")
+            self.onToolChanged?(newTool)
         }
     }
 

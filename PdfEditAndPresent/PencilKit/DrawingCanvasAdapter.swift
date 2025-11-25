@@ -17,7 +17,7 @@ protocol DrawingCanvasAPI: AnyObject {
 
 final class UnifiedBoardCanvasAdapter: DrawingCanvasAPI {
     private let api: UnifiedBoardToolAPI
-    private weak var canvasController: UnifiedBoardCanvasController?
+    internal weak var canvasController: UnifiedBoardCanvasController?
 
     init(api: UnifiedBoardToolAPI, controller: UnifiedBoardCanvasController? = nil) {
         self.api = api

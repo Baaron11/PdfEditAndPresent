@@ -4,7 +4,7 @@ import PaperKit
 
 // MARK: - Unified Board Canvas Controller
 @MainActor
-final class UnifiedBoardCanvasController: UIViewController, DrawingCanvasAPI {
+public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvasAPI {
     // MARK: - Properties
 
     // NEW: Implement protocol property - return self so callers can access the controller
@@ -1307,3 +1307,4 @@ extension UnifiedBoardCanvasController {
         activeCanvas?.undoManager?.redo()
     }
 }
+

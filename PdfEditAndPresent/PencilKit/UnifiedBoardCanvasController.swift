@@ -8,7 +8,7 @@ final class UnifiedBoardCanvasController: UIViewController, DrawingCanvasAPI {
     // MARK: - Properties
 
     // NEW: Implement protocol property - return self so callers can access the controller
-    internal var canvasController: UnifiedBoardCanvasController? { self }
+    public var canvasController: UnifiedBoardCanvasController? { self }
 
     var canvasMode: CanvasMode = .idle {
         didSet {
@@ -1034,7 +1034,7 @@ enum PDFAlignment: Equatable {
 
 // MARK: - PKCanvasViewDelegate
 extension UnifiedBoardCanvasController: PKCanvasViewDelegate {
-    func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
+    public func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
         let toolBefore = canvasView.tool
         print("✍️ [DRAW-START-BEFORE] Tool: \(toolDescription(toolBefore))")
 
@@ -1097,11 +1097,11 @@ extension UnifiedBoardCanvasController: PKCanvasViewDelegate {
         }
     }
 
-    func canvasViewDidBeginUsingTool(_ canvasView: PKCanvasView) {
+    public func canvasViewDidBeginUsingTool(_ canvasView: PKCanvasView) {
         // Track tool changes
     }
 
-    func canvasViewDidEndUsingTool(_ canvasView: PKCanvasView) {
+    public func canvasViewDidEndUsingTool(_ canvasView: PKCanvasView) {
         // Sync tools between canvases
         if canvasView === pdfDrawingCanvas, let marginCanvas = marginDrawingCanvas {
             marginCanvas.tool = canvasView.tool
@@ -1113,15 +1113,15 @@ extension UnifiedBoardCanvasController: PKCanvasViewDelegate {
 
 // MARK: - UIDropInteraction Delegate
 extension UnifiedBoardCanvasController: UIDropInteractionDelegate {
-    func dropInteraction(_ interaction: UIDropInteraction, canHandle session: UIDropSession) -> Bool {
+    public func dropInteraction(_ interaction: UIDropInteraction, canHandle session: UIDropSession) -> Bool {
         return canvasMode == .selecting && session.hasItemsConforming(toTypeIdentifiers: ["public.json"])
     }
 
-    func dropInteraction(_ interaction: UIDropInteraction, sessionDidUpdate session: UIDropSession) -> UIDropProposal {
+    public func dropInteraction(_ interaction: UIDropInteraction, sessionDidUpdate session: UIDropSession) -> UIDropProposal {
         UIDropProposal(operation: .copy)
     }
 
-    func dropInteraction(_ interaction: UIDropInteraction, performDrop session: UIDropSession) {
+    public func dropInteraction(_ interaction: UIDropInteraction, performDrop session: UIDropSession) {
         autoSwitchToSelectMode()
     }
 }
@@ -1131,7 +1131,7 @@ extension UnifiedBoardCanvasController: UIGestureRecognizerDelegate {
 
     /// Allow multiple gesture recognizers to work simultaneously
     /// This is crucial for sidebar edge pan and drawing gestures
-    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+    public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
 
         // Allow sidebar edge pan gesture to work
@@ -1145,7 +1145,7 @@ extension UnifiedBoardCanvasController: UIGestureRecognizerDelegate {
 
     /// Control which touches are intercepted based on current mode
     /// This prevents canvas from blocking non-drawing interactions
-    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+    public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
                            shouldReceive touch: UITouch) -> Bool {
 
         // For canvas views, only intercept during drawing mode

@@ -73,7 +73,7 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
     private(set) var currentAlignment: PDFAlignment = .center
 
     // Previous tool for lasso restore
-    private var previousTool: PKTool?
+    var previousTool: PKTool?
 
     // 🔗 SHARED TOOL STATE: Reference to DrawingViewModel for accessing shared tool state
     weak var toolStateProvider: DrawingViewModel?
@@ -491,11 +491,11 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
         }
         print("Dual PencilKit layers setup complete")
     }
-
+    
     /// Set canvas mode (drawing, selecting, idle)
 //    func setCanvasMode(_ mode: CanvasMode) {
 //        print("📍 [MODE-CHANGE] setCanvasMode(\(mode))")
-//        print("   currentInkingTool: \(currentInkingTool != nil ? "✅ SET" : "❌ NIL")")
+//        print("   sharedCurrentInkingTool: \(toolStateProvider?.sharedCurrentInkingTool != nil ? "✅ SET" : "❌ NIL")")
 //
 //        verifyToolOnCanvas("BEFORE setCanvasMode(\(mode))")
 //        self.canvasMode = mode
@@ -508,117 +508,113 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
 //            print("   💾 Saving tool before lasso...")
 //
 //            // CRITICAL: Save current tool state before entering lasso
-//            // The lasso flow will clear currentInkingTool, so we need this backup
-//            if let currentTool = pdfDrawingCanvas?.tool {
-//                toolBeforeLasso = currentTool
-//                print("      ✅ Saved: \(toolDescription(currentTool))")
+//            // We'll restore this manually, NOT using lasso's restoration
+//            if let inked = toolStateProvider?.sharedCurrentInkingTool {
+//                toolStateProvider?.sharedToolBeforeLasso = inked
+//                print("      ✅ Saved inking tool to SHARED state: \(toolDescription(inked))")
+//            } else if let eraser = currentEraserTool {
+//                eraserBeforeLasso = eraser
+//                print("      ✅ Saved eraser tool (local)")
 //            }
 //
 //            lassoController?.beginLasso()
 //        } else {
-//            print("   Exiting SELECTING mode - ending lasso")
-//            lassoController?.endLassoAndRestorePreviousTool()
+//              print("   Exiting SELECTING mode - ending lasso")
+//              // Call the lasso controller's restore method (it will restore *something*)
+//              // But we'll immediately override it with our saved tool
+//              lassoController?.endLassoAndRestorePreviousTool()
 //
-//            // ✅ TRY #1: Restore currentInkingTool if still available
-//            if let currentTool = currentInkingTool {
-//                print("   ✅ Restoring to currentInkingTool (still available)")
-//                pdfDrawingCanvas?.tool = currentTool
-//                marginDrawingCanvas?.tool = currentTool
-//                previousTool = currentTool
-//            }
-//            // ✅ TRY #2: Restore currentEraserTool if still available
-//            else if let currentEraser = currentEraserTool {
-//                print("   ✅ Restoring to currentEraserTool (still available)")
-//                pdfDrawingCanvas?.tool = currentEraser
-//                marginDrawingCanvas?.tool = currentEraser
-//                previousTool = currentEraser
-//            }
-//            // ✅ TRY #3: Restore from backup if tool was lost by lasso flow
-//            else if let backupTool = toolBeforeLasso {
-//                print("   ⚠️ currentInkingTool was lost by lasso, restoring from backup")
-//                print("      Restored: \(toolDescription(backupTool))")
-//                pdfDrawingCanvas?.tool = backupTool
-//                marginDrawingCanvas?.tool = backupTool
-//                previousTool = backupTool
-//                // Try to restore currentInkingTool from the backup
-//                if backupTool is PKEraserTool {
-//                    currentEraserTool = backupTool as? PKEraserTool
-//                } else {
-//                    currentInkingTool = backupTool as? PKInkingTool
-//                }
-//            } else {
-//                print("   ⚠️ Could not restore tool - no backup available!")
-//            }
+//              // ✅ CRITICAL: Immediately override with the tool we saved BEFORE entering lasso
+//              // This prevents the lasso controller's default restoration from sticking
+//              if let savedInkingTool = toolStateProvider?.sharedToolBeforeLasso {
+//                  print("   ✅ Restoring saved inking tool from SHARED state before lasso")
+//                  print("      Restored: \(toolDescription(savedInkingTool))")
+//                  pdfDrawingCanvas?.tool = savedInkingTool
+//                  marginDrawingCanvas?.tool = savedInkingTool
+//                  currentEraserTool = nil
+//                  previousTool = savedInkingTool
+//              } else if let savedEraserTool = eraserBeforeLasso {
+//                  print("   ✅ Restoring saved eraser tool from before lasso (local)")
+//                  pdfDrawingCanvas?.tool = savedEraserTool
+//                  marginDrawingCanvas?.tool = savedEraserTool
+//                  currentEraserTool = savedEraserTool
+//                  previousTool = savedEraserTool
+//              } else {
+//                  print("   ⚠️ No tool was saved before lasso, using black pen default")
+//                  let defaultTool = PKInkingTool(.pen, color: .black, width: 2)
+//                  pdfDrawingCanvas?.tool = defaultTool
+//                  marginDrawingCanvas?.tool = defaultTool
+//                  previousTool = defaultTool
+//              }
 //
-//            // Clear backup after restore
-//            toolBeforeLasso = nil
-//            eraserBeforeLasso = nil
-//        }
+//              // Clear backup after restore
+//              toolStateProvider?.sharedToolBeforeLasso = nil
+//              eraserBeforeLasso = nil
+//          }
 //
 //        verifyToolOnCanvas("AFTER setCanvasMode(\(mode))")
 //    }
     
-    /// Set canvas mode (drawing, selecting, idle)
     func setCanvasMode(_ mode: CanvasMode) {
         print("📍 [MODE-CHANGE] setCanvasMode(\(mode))")
         print("   sharedCurrentInkingTool: \(toolStateProvider?.sharedCurrentInkingTool != nil ? "✅ SET" : "❌ NIL")")
 
         verifyToolOnCanvas("BEFORE setCanvasMode(\(mode))")
-        self.canvasMode = mode
-        updateCanvasInteractionState()
-        onModeChanged?(mode)
-        onCanvasModeChanged?(mode)
+        
+        // ⚠️ CRITICAL: Defer all state updates outside the current view update cycle
+        // This prevents "Publishing changes from within view updates" warnings and AttributeGraph cycles
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            
+            self.canvasMode = mode
+            self.updateCanvasInteractionState()
+            self.onModeChanged?(mode)
+            self.onCanvasModeChanged?(mode)
 
-        if mode == .selecting {
-            print("   Entering SELECTING mode - starting lasso")
-            print("   💾 Saving tool before lasso...")
+            if mode == .selecting {
+                print("   Entering SELECTING mode - starting lasso")
+                print("   💾 Saving tool before lasso...")
 
-            // CRITICAL: Save current tool state before entering lasso
-            // We'll restore this manually, NOT using lasso's restoration
-            if let inked = toolStateProvider?.sharedCurrentInkingTool {
-                toolStateProvider?.sharedToolBeforeLasso = inked
-                print("      ✅ Saved inking tool to SHARED state: \(toolDescription(inked))")
-            } else if let eraser = currentEraserTool {
-                eraserBeforeLasso = eraser
-                print("      ✅ Saved eraser tool (local)")
+                if let inked = self.toolStateProvider?.sharedCurrentInkingTool {
+                    self.toolStateProvider?.sharedToolBeforeLasso = inked
+                    print("      ✅ Saved inking tool to SHARED state: \(self.toolDescription(inked))")
+                } else if let eraser = self.currentEraserTool {
+                    self.eraserBeforeLasso = eraser
+                    print("      ✅ Saved eraser tool (local)")
+                }
+
+                self.lassoController?.beginLasso()
+            } else {
+                print("   Exiting SELECTING mode - ending lasso")
+                self.lassoController?.endLassoAndRestorePreviousTool()
+
+                if let savedInkingTool = self.toolStateProvider?.sharedToolBeforeLasso {
+                    print("   ✅ Restoring saved inking tool from SHARED state before lasso")
+                    print("      Restored: \(self.toolDescription(savedInkingTool))")
+                    self.pdfDrawingCanvas?.tool = savedInkingTool
+                    self.marginDrawingCanvas?.tool = savedInkingTool
+                    self.currentEraserTool = nil
+                    self.previousTool = savedInkingTool
+                } else if let savedEraserTool = self.eraserBeforeLasso {
+                    print("   ✅ Restoring saved eraser tool from before lasso (local)")
+                    self.pdfDrawingCanvas?.tool = savedEraserTool
+                    self.marginDrawingCanvas?.tool = savedEraserTool
+                    self.currentEraserTool = savedEraserTool
+                    self.previousTool = savedEraserTool
+                } else {
+                    print("   ⚠️ No tool was saved before lasso, using black pen default")
+                    let defaultTool = PKInkingTool(.pen, color: .black, width: 2)
+                    self.pdfDrawingCanvas?.tool = defaultTool
+                    self.marginDrawingCanvas?.tool = defaultTool
+                    self.previousTool = defaultTool
+                }
+
+                self.toolStateProvider?.sharedToolBeforeLasso = nil
+                self.eraserBeforeLasso = nil
             }
 
-            lassoController?.beginLasso()
-        } else {
-              print("   Exiting SELECTING mode - ending lasso")
-              // Call the lasso controller's restore method (it will restore *something*)
-              // But we'll immediately override it with our saved tool
-              lassoController?.endLassoAndRestorePreviousTool()
-
-              // ✅ CRITICAL: Immediately override with the tool we saved BEFORE entering lasso
-              // This prevents the lasso controller's default restoration from sticking
-              if let savedInkingTool = toolStateProvider?.sharedToolBeforeLasso {
-                  print("   ✅ Restoring saved inking tool from SHARED state before lasso")
-                  print("      Restored: \(toolDescription(savedInkingTool))")
-                  pdfDrawingCanvas?.tool = savedInkingTool
-                  marginDrawingCanvas?.tool = savedInkingTool
-                  currentEraserTool = nil
-                  previousTool = savedInkingTool
-              } else if let savedEraserTool = eraserBeforeLasso {
-                  print("   ✅ Restoring saved eraser tool from before lasso (local)")
-                  pdfDrawingCanvas?.tool = savedEraserTool
-                  marginDrawingCanvas?.tool = savedEraserTool
-                  currentEraserTool = savedEraserTool
-                  previousTool = savedEraserTool
-              } else {
-                  print("   ⚠️ No tool was saved before lasso, using black pen default")
-                  let defaultTool = PKInkingTool(.pen, color: .black, width: 2)
-                  pdfDrawingCanvas?.tool = defaultTool
-                  marginDrawingCanvas?.tool = defaultTool
-                  previousTool = defaultTool
-              }
-
-              // Clear backup after restore
-              toolStateProvider?.sharedToolBeforeLasso = nil
-              eraserBeforeLasso = nil
-          }
-
-        verifyToolOnCanvas("AFTER setCanvasMode(\(mode))")
+            self.verifyToolOnCanvas("AFTER setCanvasMode(\(mode))")
+        }
     }
 
     /// Auto-switch to select mode (called after PaperKit item added)
@@ -1456,7 +1452,7 @@ extension UnifiedBoardCanvasController {
 
         // ✅ Store the eraser so it persists if canvases are recreated
         currentEraserTool = eraser
-        currentInkingTool = nil
+        //currentInkingTool = nil
 
         pdfDrawingCanvas?.tool = eraser
         marginDrawingCanvas?.tool = eraser

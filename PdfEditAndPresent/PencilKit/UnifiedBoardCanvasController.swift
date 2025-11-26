@@ -42,6 +42,8 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
     // Gesture recognizers
     private var tapGestureRecognizer: UITapGestureRecognizer?
     private var panGestureRecognizer: UIPanGestureRecognizer?
+    private var twoFingerPanGestureRecognizer: UIPanGestureRecognizer?
+    private var pinchGestureRecognizer: UIPinchGestureRecognizer?
 
     // Observers for form focus (TextField/TextView)
     private var interactionObservers: [NSObjectProtocol] = []
@@ -87,6 +89,7 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
 
     private var currentZoomLevel: CGFloat = 1.0
     private var currentPageRotation: Int = 0
+    private var currentZoomScale: CGFloat = 1.0
 
     // MARK: - Initialization
 
@@ -97,6 +100,7 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
         view.isOpaque = false
         setupContainerView()
         setupModeInterceptor()
+        setupGestureRecognizers()
         updateCanvasInteractionState()
         print("Setup complete")
     }
@@ -827,6 +831,79 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
 
         print("Mode interceptor setup complete")
         updateGestureRouting()
+    }
+
+    // MARK: - Two-Finger Gestures
+
+    private func setupGestureRecognizers() {
+        // Two-finger pan gesture
+        let twoFingerPan = UIPanGestureRecognizer(target: self, action: #selector(handleTwoFingerPan(_:)))
+        twoFingerPan.minimumNumberOfTouches = 2
+        twoFingerPan.maximumNumberOfTouches = 2
+        twoFingerPan.delegate = self
+        containerView.addGestureRecognizer(twoFingerPan)
+        twoFingerPanGestureRecognizer = twoFingerPan
+
+        // Pinch gesture for zoom
+        let pinch = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch(_:)))
+        pinch.delegate = self
+        containerView.addGestureRecognizer(pinch)
+        pinchGestureRecognizer = pinch
+
+        print("Two-finger gesture recognizers setup complete")
+    }
+
+    @objc private func handleTwoFingerPan(_ gesture: UIPanGestureRecognizer) {
+        switch gesture.state {
+        case .began:
+            print("🖱️ [TWO-FINGER-PAN] Started")
+        case .changed:
+            let translation = gesture.translation(in: containerView)
+            print("🖱️ [TWO-FINGER-PAN] Pan coordinates: x=\(Int(translation.x)), y=\(Int(translation.y))")
+
+            // Apply translation to containerView
+            var currentTransform = containerView.transform
+            currentTransform.tx += translation.x
+            currentTransform.ty += translation.y
+            containerView.transform = currentTransform
+
+            // Reset translation for next update
+            gesture.setTranslation(.zero, in: containerView)
+        case .ended:
+            print("🖱️ [TWO-FINGER-PAN] Ended")
+        case .cancelled:
+            print("🖱️ [TWO-FINGER-PAN] Cancelled")
+        default:
+            break
+        }
+    }
+
+    @objc private func handlePinch(_ gesture: UIPinchGestureRecognizer) {
+        switch gesture.state {
+        case .began:
+            print("🔍 [PINCH-ZOOM] Started at scale: \(String(format: "%.2f", gesture.scale))")
+        case .changed:
+            // Apply zoom scale
+            let newScale = currentZoomScale * gesture.scale
+
+            // Clamp between 0.5x and 3.0x
+            let clampedScale = max(0.5, min(3.0, newScale))
+            currentZoomScale = clampedScale
+
+            print("🔍 [PINCH-ZOOM] Zoom scale: \(String(format: "%.2f", clampedScale))x")
+
+            // Apply scale transform to containerView
+            containerView.transform = CGAffineTransform(scaleX: clampedScale, y: clampedScale)
+
+            // Reset gesture scale to 1.0 for next iteration
+            gesture.scale = 1.0
+        case .ended:
+            print("🔍 [PINCH-ZOOM] Ended at scale: \(String(format: "%.2f", currentZoomScale))x")
+        case .cancelled:
+            print("🔍 [PINCH-ZOOM] Cancelled")
+        default:
+            break
+        }
     }
 
     private func debugCanvasLayout(label: String = "") {

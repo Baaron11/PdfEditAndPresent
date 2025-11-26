@@ -1,13 +1,12 @@
 //
-//  DrawingTool.swift
+//  DrawingViewModel.swift (UPDATED)
 //  UnifiedBoard
 //
-//  Created by Brandon Ramirez on 11/7/25.
-//
-
-
-// DrawingViewModel.swift
-// Location: Shared/ViewModels/DrawingViewModel.swift
+// Key changes:
+// 1. Added NSHashTable to track all active canvas controllers
+// 2. Added registerCanvasController() method
+// 3. Added broadcastToolChange() method that updates ALL controllers
+// 4. Modified selectBrush() to call broadcastToolChange instead of single callback
 
 import SwiftUI
 import PencilKit
@@ -82,23 +81,34 @@ final class DrawingViewModel: ObservableObject {
     @Published var sharedToolBeforeLasso: PKInkingTool?
 
     // ✅ NEW: Keep weak references to ALL active canvas controllers
-       private var activeCanvasControllers: NSHashTable<AnyObject> = NSHashTable.weakObjects()
+    private var activeCanvasControllers: NSHashTable<AnyObject> = NSHashTable.weakObjects()
 
-   // Callback when tool changes - notifies canvas controllers (DEPRECATED - use broadcastToolChange)
-   var onToolChanged: ((PKInkingTool?) -> Void)?
+    // ✅ NEW: Track current canvas mode (preserved across page changes)
+    var currentCanvasMode: CanvasMode = .selecting
+
+    // Callback when tool changes - notifies canvas controllers (DEPRECATED - use broadcastToolChange)
+    var onToolChanged: ((PKInkingTool?) -> Void)?
 
     // MARK: - Init
-        init() { }
+    init() { }
 
-        // MARK: - Canvas Controller Registration
-        /// Register a canvas controller to receive tool updates
-        func registerCanvasController(_ controller: AnyObject) {
-            activeCanvasControllers.add(controller)
-            print("🔗 [REGISTER] Canvas controller registered")
-            print("   Total active controllers: \(activeCanvasControllers.count)")
+    // MARK: - Canvas Controller Registration
+    /// Register a canvas controller to receive tool updates
+    func registerCanvasController(_ controller: AnyObject) {
+        activeCanvasControllers.add(controller)
+        print("🔗 [REGISTER] Canvas controller registered")
+        print("   Total active controllers: \(activeCanvasControllers.count)")
+    }
+
+    /// Reapply the current shared tool to all registered canvas controllers
+    /// (useful when canvas is reinitialized and needs tool restored)
+    func reapplyCurrentTool() {
+        if let sharedTool = sharedCurrentInkingTool {
+            broadcastToolChange(sharedTool)
         }
+    }
 
-        /// Broadcast tool change to ALL registered canvas controllers
+    /// Broadcast tool change to ALL registered canvas controllers
     private func broadcastToolChange(_ tool: PKInkingTool?) {
         print("📡 [BROADCAST] Updating \(activeCanvasControllers.count) canvas controller(s)")
 
@@ -442,18 +452,18 @@ final class DrawingViewModel: ObservableObject {
             print("   Calling: canvasAdapter?.setEraser()")
             canvasAdapter?.setEraser()
         } else {
-                   print("   Calling: canvasAdapter?.setInk()")
-                   canvasAdapter?.setInk(ink: brush.type.inkType, color: brush.color.uiColor, width: brush.width)
+            print("   Calling: canvasAdapter?.setInk()")
+            canvasAdapter?.setInk(ink: brush.type.inkType, color: brush.color.uiColor, width: brush.width)
 
-                   // ✅ UPDATE SHARED TOOL STATE: Store the tool in shared state
-                   let newTool = PKInkingTool(brush.type.inkType, color: brush.color.uiColor, width: brush.width)
-                   print("   🔄 [SHARED-STATE] Updating sharedCurrentInkingTool")
-                   self.sharedCurrentInkingTool = newTool
+            // ✅ UPDATE SHARED TOOL STATE: Store the tool in shared state
+            let newTool = PKInkingTool(brush.type.inkType, color: brush.color.uiColor, width: brush.width)
+            print("   🔄 [SHARED-STATE] Updating sharedCurrentInkingTool")
+            self.sharedCurrentInkingTool = newTool
 
-                   // ✅ BROADCAST to ALL controllers
-                   print("   📡 [BROADCAST] Updating all canvas controllers with new tool")
-                   broadcastToolChange(newTool)
-               }
+            // ✅ BROADCAST to ALL controllers
+            print("   📡 [BROADCAST] Updating all canvas controllers with new tool")
+            broadcastToolChange(newTool)
+        }
     }
 
     // MARK: - Cleanup

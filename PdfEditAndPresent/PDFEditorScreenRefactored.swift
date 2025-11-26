@@ -1207,7 +1207,6 @@ struct PDFEditorScreenRefactored: View {
             canvasKey = UUID()
         }
         
-        canvasMode = .drawing
         panOffset = .zero
         lastPanValue = .zero
         initialZoomForGesture = 1.0
@@ -1216,7 +1215,13 @@ struct PDFEditorScreenRefactored: View {
         editorData.clearCanvas()
         editorData.initializeController(CGRect(origin: .zero, size: pageSize))
         
-        print("🔄 Reset canvas for new page")
+        // ✅ Reapply the current shared tool to all registered controllers
+        // Delay slightly to ensure the new controller is registered
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            self.drawingVM.reapplyCurrentTool()
+        }
+        
+        print("🔄 Reset canvas for new page (mode preserved: \(canvasMode))")
     }
     
     private func commitZoomChange() {

@@ -81,11 +81,44 @@ final class DrawingViewModel: ObservableObject {
     @Published var sharedCurrentInkingTool: PKInkingTool?
     @Published var sharedToolBeforeLasso: PKInkingTool?
 
-    // Callback when tool changes - notifies canvas controllers
-    var onToolChanged: ((PKInkingTool?) -> Void)?
+    // ✅ NEW: Keep weak references to ALL active canvas controllers
+       private var activeCanvasControllers: NSHashTable<AnyObject> = NSHashTable.weakObjects()
+
+   // Callback when tool changes - notifies canvas controllers (DEPRECATED - use broadcastToolChange)
+   var onToolChanged: ((PKInkingTool?) -> Void)?
 
     // MARK: - Init
-    init() { }
+        init() { }
+
+        // MARK: - Canvas Controller Registration
+        /// Register a canvas controller to receive tool updates
+        func registerCanvasController(_ controller: AnyObject) {
+            activeCanvasControllers.add(controller)
+            print("🔗 [REGISTER] Canvas controller registered")
+            print("   Total active controllers: \(activeCanvasControllers.count)")
+        }
+
+        /// Broadcast tool change to ALL registered canvas controllers
+    private func broadcastToolChange(_ tool: PKInkingTool?) {
+        print("📡 [BROADCAST] Updating \(activeCanvasControllers.count) canvas controller(s)")
+
+        // Iterate through all weak references
+        for controller in activeCanvasControllers.allObjects {
+            // Use protocol-based access to update tools
+            if let controller = controller as? UnifiedBoardCanvasController {
+                print("   ✅ Updating controller: \(ObjectIdentifier(controller))")
+                // Only update if tool is not nil (tool is optional, property expects non-optional)
+                if let newTool = tool {
+                    controller.pdfDrawingCanvas?.tool = newTool
+                    controller.marginDrawingCanvas?.tool = newTool
+                    controller.previousTool = newTool
+                }
+            }
+        }
+
+        // Also call the single callback for backward compatibility
+        onToolChanged?(tool)
+    }
 
     // MARK: - Canvas Adapter Attachment
     func attachCanvas(_ canvas: DrawingCanvasAPI) {
@@ -409,18 +442,18 @@ final class DrawingViewModel: ObservableObject {
             print("   Calling: canvasAdapter?.setEraser()")
             canvasAdapter?.setEraser()
         } else {
-            print("   Calling: canvasAdapter?.setInk()")
-            canvasAdapter?.setInk(ink: brush.type.inkType, color: brush.color.uiColor, width: brush.width)
+                   print("   Calling: canvasAdapter?.setInk()")
+                   canvasAdapter?.setInk(ink: brush.type.inkType, color: brush.color.uiColor, width: brush.width)
 
-            // 📡 UPDATE SHARED TOOL STATE: Store the tool in shared state for cross-controller use
-            let newTool = PKInkingTool(brush.type.inkType, color: brush.color.uiColor, width: brush.width)
-            print("   🔄 [SHARED-STATE] Updating sharedCurrentInkingTool")
-            self.sharedCurrentInkingTool = newTool
+                   // ✅ UPDATE SHARED TOOL STATE: Store the tool in shared state
+                   let newTool = PKInkingTool(brush.type.inkType, color: brush.color.uiColor, width: brush.width)
+                   print("   🔄 [SHARED-STATE] Updating sharedCurrentInkingTool")
+                   self.sharedCurrentInkingTool = newTool
 
-            // 📡 Notify all controllers that the tool has changed
-            print("   📡 [CALLBACK] Calling onToolChanged callback")
-            self.onToolChanged?(newTool)
-        }
+                   // ✅ BROADCAST to ALL controllers
+                   print("   📡 [BROADCAST] Updating all canvas controllers with new tool")
+                   broadcastToolChange(newTool)
+               }
     }
 
     // MARK: - Cleanup

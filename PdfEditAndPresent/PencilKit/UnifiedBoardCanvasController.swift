@@ -1,4 +1,5 @@
 import UIKit
+import PDFKit
 import PencilKit
 import PaperKit
 
@@ -70,6 +71,7 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
     var onPaperKitItemAdded: (() -> Void)?
     var onDrawingChanged: ((Int, PKDrawing?, PKDrawing?) -> Void)?
     var onCanvasModeChanged: ((CanvasMode) -> Void)?
+    var onZoomChanged: ((CGFloat) -> Void)?
 
     // Alignment state
     private(set) var currentAlignment: PDFAlignment = .center
@@ -90,10 +92,18 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
     private var currentZoomLevel: CGFloat = 1.0
     private var currentPageRotation: Int = 0
     private var currentZoomScale: CGFloat = 1.0
+    
+    private weak var externalPDFView: PDFView?
+    
+    private var pdfCanvasWidthConstraint: NSLayoutConstraint?
+    private var pdfCanvasHeightConstraint: NSLayoutConstraint?
+    private var marginCanvasWidthConstraint: NSLayoutConstraint?
+    private var marginCanvasHeightConstraint: NSLayoutConstraint?
+
 
     // MARK: - Initialization
 
-   public override func viewDidLoad() {
+    public override func viewDidLoad() {
         super.viewDidLoad()
         print("UnifiedBoardCanvasController viewDidLoad")
         view.backgroundColor = .clear
@@ -101,6 +111,12 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
         setupContainerView()
         setupModeInterceptor()
         setupGestureRecognizers()
+        
+        // ✅ Disable PDF's native pinch zoom (small delay ensures PDF is loaded)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            self.disablePDFViewGestures()
+        }
+        
         updateCanvasInteractionState()
         print("Setup complete")
     }
@@ -164,6 +180,11 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
         for o in interactionObservers { NotificationCenter.default.removeObserver(o) }
     }
 
+    public func setPDFView(_ pdfView: PDFView) {
+        self.externalPDFView = pdfView
+        print("✅ [PDF-SYNC] PDFView reference stored in canvas controller")
+    }
+    
     // MARK: - Private Setup
 
     private func setupContainerView() {
@@ -184,7 +205,28 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
 
         print("Container view set up with Auto Layout")
     }
-
+    private func disablePDFViewGestures() {
+        // Recursively find all PDFView instances and disable their pinch gestures
+        func disableGesturesInView(_ view: UIView) {
+            // If this view is a PDFView, disable its pinch gestures
+            if NSStringFromClass(type(of: view)).contains("PDFView") {
+                view.gestureRecognizers?.forEach { recognizer in
+                    if recognizer is UIPinchGestureRecognizer {
+                        recognizer.isEnabled = false
+                        print("🔍 [FIX] Disabled PDFView pinch gesture")
+                    }
+                }
+            }
+            
+            // Recursively check subviews
+            for subview in view.subviews {
+                disableGesturesInView(subview)
+            }
+        }
+        
+        // Start from the current view and search downward
+        disableGesturesInView(self.view)
+    }
     // MARK: - Canvas Setup Helpers
 
     private func pinCanvas(_ canvas: PKCanvasView, to host: UIView) {
@@ -196,12 +238,18 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
         canvas.translatesAutoresizingMaskIntoConstraints = false
         host.addSubview(canvas)
 
-        // Constrain canvas to PDF page size (NOT container size)
+        let widthConstraint = canvas.widthAnchor.constraint(equalToConstant: canvasSize.width)
+        let heightConstraint = canvas.heightAnchor.constraint(equalToConstant: canvasSize.height)
+        
+        // ✅ SET IDENTIFIERS SO WE CAN FIND THEM LATER
+        widthConstraint.identifier = "\(canvasName)_width"
+        heightConstraint.identifier = "\(canvasName)_height"
+        
         NSLayoutConstraint.activate([
             canvas.leadingAnchor.constraint(equalTo: host.leadingAnchor),
             canvas.topAnchor.constraint(equalTo: host.topAnchor),
-            canvas.widthAnchor.constraint(equalToConstant: canvasSize.width),
-            canvas.heightAnchor.constraint(equalToConstant: canvasSize.height)
+            widthConstraint,
+            heightConstraint
         ])
 
         // Setup
@@ -446,7 +494,8 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
         lassoController = PKLassoSelectionController(canvasView: pdfCanvas)
 
         // Reconfigure canvas constraints to match current page size
-        reconfigureCanvasConstraints()
+        reconfigureCanvasConstraints(zoomLevel: 1.0)  // ✅ Always base size, let SwiftUI scaleEffect handle zoom
+
 
         // Set initial tool (default black)
         let defaultTool = PKInkingTool(.pen, color: .black, width: 2)
@@ -606,6 +655,10 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
 
         loadPageDrawings(for: pageIndex)
         rebuildTransformer()
+        
+        // ✅ CRITICAL: Update constraints when page size changes!
+        reconfigureCanvasConstraints(zoomLevel: 1.0)
+        
         print("🎛️ [LIFECYCLE]   About to call applyTransforms()")
         applyTransforms()
         print("🎛️ [LIFECYCLE]   setCurrentPage() complete")
@@ -646,6 +699,125 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
             loadPageDrawings(for: pageIndex)
         }
     }
+    
+    func updateCanvasForZoom(_ zoomLevel: CGFloat) {
+        // Note: Constraints stay at BASE size (1.0)
+        // SwiftUI scaleEffect is the ONLY zoom source
+        // (Verbose logging removed - no action needed here)
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     // MARK: - Transform Management
 
@@ -723,28 +895,82 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
         print("🔄 [TRANSFORM]   pdfDrawingCanvas.frame: \(pdfDrawingCanvas?.frame ?? .zero)")
     }
 
-    private func reconfigureCanvasConstraints() {
+    private func reconfigureCanvasConstraints(zoomLevel: CGFloat = 1.0) {
         guard let pdfCanvas = pdfDrawingCanvas,
               let marginCanvas = marginDrawingCanvas else { return }
 
-        // Deactivate old constraints
-        pdfCanvas.constraints.forEach { $0.isActive = false }
-        marginCanvas.constraints.forEach { $0.isActive = false }
+        // Calculate base size (no zoom multiplication - that's SwiftUI's job)
+        let baseSize = canvasSize
+        
+        print("🎯 [RECONFIG] Canvas constraints reconfigured")
+        print("🎯 [RECONFIG]   Base size: \(baseSize)")
+        print("🎯 [RECONFIG]   Zoom level: \(String(format: "%.4f", zoomLevel))")
 
-        // Re-pin with new canvasSize
+        // Deactivate old constraints
+        [pdfCanvasWidthConstraint, pdfCanvasHeightConstraint,
+         marginCanvasWidthConstraint, marginCanvasHeightConstraint].forEach { $0?.isActive = false }
+
+        // Remove from superview
         pdfCanvas.removeFromSuperview()
         marginCanvas.removeFromSuperview()
 
-        pinCanvas(pdfCanvas, to: containerView)
-        pinCanvas(marginCanvas, to: containerView)
+        // Re-add pdfCanvas
+        pdfCanvas.translatesAutoresizingMaskIntoConstraints = false
+        containerView.addSubview(pdfCanvas)
+        
+        let pdfWidth = pdfCanvas.widthAnchor.constraint(equalToConstant: baseSize.width)
+        let pdfHeight = pdfCanvas.heightAnchor.constraint(equalToConstant: baseSize.height)
+        
+        pdfCanvasWidthConstraint = pdfWidth
+        pdfCanvasHeightConstraint = pdfHeight
+        
+        NSLayoutConstraint.activate([
+            pdfCanvas.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+            pdfCanvas.topAnchor.constraint(equalTo: containerView.topAnchor),
+            pdfWidth,
+            pdfHeight
+        ])
+        
+        pdfCanvas.backgroundColor = UIColor.blue.withAlphaComponent(0.2)
+        pdfCanvas.isOpaque = false
+        pdfCanvas.isUserInteractionEnabled = false
+        pdfCanvas.drawingPolicy = .anyInput
+        pdfCanvas.maximumZoomScale = 1.0
+        pdfCanvas.minimumZoomScale = 1.0
+        pdfCanvas.isScrollEnabled = false
+        pdfCanvas.clipsToBounds = true
 
-        // Force layout update
+        // Re-add marginCanvas
+        marginCanvas.translatesAutoresizingMaskIntoConstraints = false
+        containerView.addSubview(marginCanvas)
+        
+        let marginWidth = marginCanvas.widthAnchor.constraint(equalToConstant: baseSize.width)
+        let marginHeight = marginCanvas.heightAnchor.constraint(equalToConstant: baseSize.height)
+        
+        marginCanvasWidthConstraint = marginWidth
+        marginCanvasHeightConstraint = marginHeight
+        
+        NSLayoutConstraint.activate([
+            marginCanvas.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+            marginCanvas.topAnchor.constraint(equalTo: containerView.topAnchor),
+            marginWidth,
+            marginHeight
+        ])
+        
+        marginCanvas.backgroundColor = UIColor.blue.withAlphaComponent(0.2)
+        marginCanvas.isOpaque = false
+        marginCanvas.isUserInteractionEnabled = false
+        marginCanvas.drawingPolicy = .anyInput
+        marginCanvas.maximumZoomScale = 1.0
+        marginCanvas.minimumZoomScale = 1.0
+        marginCanvas.isScrollEnabled = false
+        marginCanvas.clipsToBounds = true
+
         containerView.setNeedsLayout()
         containerView.layoutIfNeeded()
 
-        print("🎯 Canvas constraints reconfigured for size: \(canvasSize)")
+        print("🎯 [RECONFIG]   Constraints created at BASE SIZE ✅")
     }
-
     // MARK: - Drawing Persistence
 
     private func saveCurrentPageDrawings() {
@@ -836,21 +1062,19 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
     // MARK: - Two-Finger Gestures
 
     private func setupGestureRecognizers() {
-        // Two-finger pan gesture
-        let twoFingerPan = UIPanGestureRecognizer(target: self, action: #selector(handleTwoFingerPan(_:)))
-        twoFingerPan.minimumNumberOfTouches = 2
-        twoFingerPan.maximumNumberOfTouches = 2
-        twoFingerPan.delegate = self
-        containerView.addGestureRecognizer(twoFingerPan)
-        twoFingerPanGestureRecognizer = twoFingerPan
-
-        // Pinch gesture for zoom
-        let pinch = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch(_:)))
-        pinch.delegate = self
-        containerView.addGestureRecognizer(pinch)
-        pinchGestureRecognizer = pinch
-
-        print("Two-finger gesture recognizers setup complete")
+        // ✅ TWO-FINGER PAN - Works in both modes
+        let twoPanGesture = UIPanGestureRecognizer(target: self, action: #selector(handleTwoFingerPan(_:)))
+        twoPanGesture.minimumNumberOfTouches = 2
+        twoPanGesture.maximumNumberOfTouches = 2
+        twoPanGesture.cancelsTouchesInView = true  // ✅ Prevent touches from reaching other handlers
+        containerView.addGestureRecognizer(twoPanGesture)
+        print("🖱️ [SETUP] Two-finger pan gesture added")
+        
+        // ✅ PINCH-TO-ZOOM - Works in both modes
+        let pinchGesture = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch(_:)))
+        pinchGesture.cancelsTouchesInView = true  // ✅ CRITICAL: Prevent PDF's native pinch-zoom from triggering
+        containerView.addGestureRecognizer(pinchGesture)
+        print("🔍 [SETUP] Pinch zoom gesture added")
     }
 
     @objc private func handleTwoFingerPan(_ gesture: UIPanGestureRecognizer) {
@@ -877,34 +1101,129 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
             break
         }
     }
-
+    
     @objc private func handlePinch(_ gesture: UIPinchGestureRecognizer) {
+        guard gesture.numberOfTouches == 2 else { return }
+        
         switch gesture.state {
-        case .began:
-            print("🔍 [PINCH-ZOOM] Started at scale: \(String(format: "%.2f", gesture.scale))")
         case .changed:
-            // Apply zoom scale
-            let newScale = currentZoomScale * gesture.scale
-
-            // Clamp between 0.5x and 3.0x
+            let scale = gesture.scale
+            let newScale = currentZoomScale * scale
             let clampedScale = max(0.5, min(3.0, newScale))
+            
+            // Scale canvas container
+            //containerView.transform = CGAffineTransform(scaleX: clampedScale, y: clampedScale)
             currentZoomScale = clampedScale
-
-            print("🔍 [PINCH-ZOOM] Zoom scale: \(String(format: "%.2f", clampedScale))x")
-
-            // Apply scale transform to containerView
-            containerView.transform = CGAffineTransform(scaleX: clampedScale, y: clampedScale)
-
-            // Reset gesture scale to 1.0 for next iteration
             gesture.scale = 1.0
-        case .ended:
+            
+            print("🔍 [PINCH-ZOOM] Scale: \(String(format: "%.2f", clampedScale))x")
+            
+            // ✅ CALL THE CALLBACK - this tells parent (PDFEditorScreenRefactored) about the zoom
+            if let callback = self.onZoomChanged {
+                print("🔗 [PINCH] ✅ Callback exists, calling with scale=\(String(format: "%.2f", clampedScale))")
+                callback(clampedScale)
+            } else {
+                print("🔗 [PINCH] ⚠️ Callback is NIL - not wired up!")
+            }
+            
+        case .ended, .cancelled:
             print("🔍 [PINCH-ZOOM] Ended at scale: \(String(format: "%.2f", currentZoomScale))x")
-        case .cancelled:
-            print("🔍 [PINCH-ZOOM] Cancelled")
+            
         default:
             break
         }
     }
+
+
+    private func updatePDFViewZoom(_ scale: CGFloat) {
+        if let pdfView = externalPDFView {
+            pdfView.scaleFactor = scale
+            print("📄 [ZOOM] ✅ PDFView scaleFactor set to: \(String(format: "%.2f", scale))x")
+        } else {
+            print("📄 [ZOOM] ⚠️ No PDFView reference - make sure to call setPDFView() after creating the controller")
+        }
+    }
+
+    private func findPDFViewInHierarchy(_ view: UIView) -> UIView? {
+        // Check if this view is a PDFView
+        if NSStringFromClass(type(of: view)).contains("PDFView") {
+            print("📄 [ZOOM-DEBUG]   Found PDFView at: \(NSStringFromClass(type(of: view)))")
+            return view
+        }
+        
+        // Recursively search subviews
+        for subview in view.subviews {
+            if let pdfView = findPDFViewInHierarchy(subview) {
+                return pdfView
+            }
+        }
+        
+        return nil
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
     private func debugCanvasLayout(label: String = "") {
         let labelStr = label.isEmpty ? "" : " [\(label)]"

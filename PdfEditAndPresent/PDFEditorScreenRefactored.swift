@@ -866,27 +866,30 @@ struct PDFEditorScreenRefactored: View {
                         }
                     },
                     onToolAPIReady: { api in
-                                            print("🧩 Tool API ready")
+                        print("🧩 Tool API ready")
 
-                                            // 🔗 Register the canvas controller with DrawingViewModel
-                                            if let controller = api.canvasController {
-                                                print("   🔗 [SETUP] Assigning toolStateProvider to controller")
-                                                controller.toolStateProvider = drawingVM
-                                                print("   🔗 [SETUP] toolStateProvider assigned ✅")
+                        if let controller = api.canvasController {
+                            print("   🔗 [SETUP] Assigning toolStateProvider to controller")
+                            controller.toolStateProvider = drawingVM
+                            print("   🔗 [SETUP] toolStateProvider assigned ✅")
 
-                                                // ✅ REGISTER this controller to receive tool broadcasts
-                                                print("   📡 [REGISTER] Registering controller with DrawingViewModel")
-                                                drawingVM.registerCanvasController(controller)
-                                                print("   📡 [REGISTER] Controller registered ✅")
-                                            }
+                            print("   📡 [REGISTER] Registering controller with DrawingViewModel")
+                            drawingVM.registerCanvasController(controller)
+                            print("   📡 [REGISTER] Controller registered ✅")
+                        }
 
-                                            let adapter = UnifiedBoardCanvasAdapter(
-                                                api: api,
-                                                controller: api.canvasController  // ← Access through protocol property
-                                            )
-                                            self.drawingCanvasAdapter = adapter
-                                            drawingVM.attachCanvas(adapter)
-                                        }
+                        let adapter = UnifiedBoardCanvasAdapter(
+                            api: api,
+                            controller: api.canvasController
+                        )
+                        self.drawingCanvasAdapter = adapter
+                        drawingVM.attachCanvas(adapter)
+                    },
+                    onZoomChanged: { newZoom in  // ✅ MOVE TO END
+                        print("🔍 [SYNC-CONTINUOUS] Canvas pinch zoom → updating pdfManager to \(String(format: "%.2f", newZoom))x")
+                        pdfManager.setZoom(newZoom)
+                        initialZoomForGesture = newZoom
+                    }
                 )
                 .ignoresSafeArea()
                 .gesture(continuousZoomGesture)
@@ -919,7 +922,7 @@ struct PDFEditorScreenRefactored: View {
             }
         }
     }
-    
+
     private var continuousZoomGesture: some Gesture {
         MagnificationGesture()
             .onChanged { scale in
@@ -992,27 +995,30 @@ struct PDFEditorScreenRefactored: View {
                             }
                         },
                         onToolAPIReady: { api in
-                                                    print("🧩 Tool API ready (single page mode)")
+                            print("🧩 Tool API ready (single page mode)")
 
-                                                    // 🔗 Register the canvas controller with DrawingViewModel
-                                                    if let controller = api.canvasController {
-                                                        print("   🔗 [SETUP] Assigning toolStateProvider to controller")
-                                                        controller.toolStateProvider = drawingVM
-                                                        print("   🔗 [SETUP] toolStateProvider assigned ✅")
+                            if let controller = api.canvasController {
+                                print("   🔗 [SETUP] Assigning toolStateProvider to controller")
+                                controller.toolStateProvider = drawingVM
+                                print("   🔗 [SETUP] toolStateProvider assigned ✅")
 
-                                                        // ✅ REGISTER this controller to receive tool broadcasts
-                                                        print("   📡 [REGISTER] Registering controller with DrawingViewModel")
-                                                        drawingVM.registerCanvasController(controller)
-                                                        print("   📡 [REGISTER] Controller registered ✅")
-                                                    }
+                                print("   📡 [REGISTER] Registering controller with DrawingViewModel")
+                                drawingVM.registerCanvasController(controller)
+                                print("   📡 [REGISTER] Controller registered ✅")
+                            }
 
-                                                    let adapter = UnifiedBoardCanvasAdapter(
-                                                        api: api,
-                                                        controller: api.canvasController  // ← Access through protocol property
-                                                    )
-                                                    self.drawingCanvasAdapter = adapter
-                                                    drawingVM.attachCanvas(adapter)
-                                                }
+                            let adapter = UnifiedBoardCanvasAdapter(
+                                api: api,
+                                controller: api.canvasController
+                            )
+                            self.drawingCanvasAdapter = adapter
+                            drawingVM.attachCanvas(adapter)
+                        },
+                        onZoomChanged: { newZoom in  // ✅ MOVE TO END
+                            print("🔍 [SYNC] Canvas pinch zoom → updating pdfManager to \(String(format: "%.2f", newZoom))x")
+                            pdfManager.setZoom(newZoom)
+                            initialZoomForGesture = newZoom
+                        }
                     )
                     .frame(width: effectiveSize.width, height: effectiveSize.height)
                 }
@@ -1066,8 +1072,6 @@ struct PDFEditorScreenRefactored: View {
             }
         }
     }
-
-
 
 
 

@@ -27,6 +27,8 @@ struct ContinuousScrollPDFViewWithTracking: View {
     @State private var isReRendering = false
     @State private var pendingScrollTarget: Int?
     @State private var isInternalVisibleUpdate = false
+    
+    var onZoomChanged: ((CGFloat) -> Void)? 
 
     var body: some View {
         GeometryReader { outerGeo in
@@ -41,7 +43,7 @@ struct ContinuousScrollPDFViewWithTracking: View {
                             )
                         
                         // ✅ Apply zoom to the VStack, not individual pages
-                        VStack(spacing: 8) {
+                        VStack(spacing: 8 * pdfManager.zoomLevel) {  // ✅ SCALE THE SPACING
                             ForEach(0..<pdfManager.pageCount, id: \.self) { pageIndex in
                                 pageView(for: pageIndex, availableWidth: outerGeo.size.width - 16)
                                     .id(pageIndex)
@@ -149,7 +151,12 @@ struct ContinuousScrollPDFViewWithTracking: View {
     @ViewBuilder
     private func pageView(for pageIndex: Int, availableWidth: CGFloat) -> some View {
         let effectiveSize = pdfManager.effectiveSize(for: pageIndex)
-
+        
+        let zoomedCanvasSize = CGSize(
+               width: effectiveSize.width * pdfManager.zoomLevel,
+               height: effectiveSize.height * pdfManager.zoomLevel
+           )
+        
         ZStack(alignment: .topLeading) {
             VStack(spacing: 0) {
                 if let image = pageImages[pageIndex] {
@@ -186,25 +193,26 @@ struct ContinuousScrollPDFViewWithTracking: View {
 
             // Canvas - sized to match the effective page size
             UnifiedBoardCanvasView(
-                editorData: editorData,
-                pdfManager: pdfManager,
-                canvasMode: $canvasMode,
-                marginSettings: $marginSettings,
-                canvasSize: effectiveSize,
-                currentPageIndex: pageIndex,
-                zoomLevel: pdfManager.zoomLevel,
-                pageRotation: pdfManager.rotationForPage(pageIndex),
-                onModeChanged: onCanvasModeChanged,
-                onPaperKitItemAdded: onPaperKitItemAdded,
-                onDrawingChanged: onDrawingChanged,
-                onToolAPIReady: onToolAPIReady
-            )
+                        editorData: editorData,
+                        pdfManager: pdfManager,
+                        canvasMode: $canvasMode,
+                        marginSettings: $marginSettings,
+                        canvasSize: effectiveSize,
+                        currentPageIndex: pageIndex,
+                        zoomLevel: pdfManager.zoomLevel,
+                        pageRotation: pdfManager.rotationForPage(pageIndex),
+                        onModeChanged: onCanvasModeChanged,
+                        onPaperKitItemAdded: onPaperKitItemAdded,
+                        onDrawingChanged: onDrawingChanged,
+                        onToolAPIReady: onToolAPIReady,
+                        onZoomChanged: onZoomChanged
+                    )
             .id("canvas-\(pageIndex)")
             .allowsHitTesting(canvasMode == .drawing || canvasMode == .selecting)
             .frame(width: effectiveSize.width, height: effectiveSize.height)
         }
         // Explicitly size ZStack to match the page
-        .frame(width: effectiveSize.width, height: effectiveSize.height)
+        .frame(width: effectiveSize.width, height: effectiveSize.height) 
     }
 
     // MARK: - Margins Hash

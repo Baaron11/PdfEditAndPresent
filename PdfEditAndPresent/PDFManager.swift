@@ -158,7 +158,7 @@ class PDFManager: ObservableObject {
         let clampedZoom = max(minZoom, min(level, maxZoom))
         if clampedZoom != zoomLevel {
             zoomLevel = clampedZoom
-            print("🔍 Zoom set to \(Int(zoomLevel * 100))%")
+            //print("🔍 Zoom set to \(Int(zoomLevel * 100))%")
         }
     }
     
@@ -167,13 +167,13 @@ class PDFManager: ObservableObject {
         let clampedZoom = max(minZoom, min(level, maxZoom))
         if clampedZoom != zoomLevel {
             zoomLevel = clampedZoom
-            print("🔍 Custom zoom set to \(Int(zoomLevel * 100))%")
+            //print("🔍 Custom zoom set to \(Int(zoomLevel * 100))%")
         }
     }
     
     func zoomToFit() {
         zoomLevel = 1.0
-        print("🔍 Zoom reset to fit")
+        //print("🔍 Zoom reset to fit")
     }
     
     // MARK: - Get current page

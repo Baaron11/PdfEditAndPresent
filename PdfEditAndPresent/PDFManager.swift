@@ -813,8 +813,9 @@ extension PDFManager {
     // MARK: - Get Helper
     func getMarginCanvasHelper(for pageIndex: Int) -> MarginCanvasHelper {
         let settings = getMarginSettings(for: pageIndex)
-        let size = effectiveSize(for: pageIndex)
-        return MarginCanvasHelper(settings: settings, originalPDFSize: size, canvasSize: size)
+        let pdfSize = effectiveSize(for: pageIndex)
+        let expandedSize = expandedCanvasSize(for: pageIndex)
+        return MarginCanvasHelper(settings: settings, originalPDFSize: pdfSize, canvasSize: expandedSize)
     }
     
     // MARK: - Check if Enabled
@@ -1001,6 +1002,27 @@ extension PDFManager {
     
     func getCurrentPageEffectiveSize() -> CGSize {
         effectiveSize(for: currentPageIndex)
+    }
+}
+
+// MARK: - Expanded Canvas Extension
+extension PDFManager {
+    /// Calculate expanded canvas size (2.8x the original page size for 90% margin on all sides)
+    func expandedCanvasSize(for pageIndex: Int) -> CGSize {
+        let effectiveSize = effectiveSize(for: pageIndex)
+        return CGSize(
+            width: effectiveSize.width * 2.8,
+            height: effectiveSize.height * 2.8
+        )
+    }
+
+    /// Calculate PDF offset within expanded canvas (default position before margins applied)
+    func pdfOffsetInExpandedCanvas(for pageIndex: Int) -> CGPoint {
+        let effectiveSize = effectiveSize(for: pageIndex)
+        return CGPoint(
+            x: effectiveSize.width * 0.9,
+            y: effectiveSize.height * 0.9
+        )
     }
 }
 

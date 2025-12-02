@@ -168,8 +168,8 @@ struct PDFEditorScreenRefactored: View {
             }
 
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                let pageSize = pdfManager.getCurrentPageSize()
-                editorData.initializeController(CGRect(origin: .zero, size: pageSize))
+                let expandedSize = pdfManager.expandedCanvasSize(for: 0)
+                editorData.initializeController(CGRect(origin: .zero, size: expandedSize))
 
                 marginSettings = pdfManager.getMarginSettings(for: 0)
 
@@ -195,10 +195,10 @@ struct PDFEditorScreenRefactored: View {
             pdfManager.editorCurrentPage = newIndex + 1
             marginSettings = pdfManager.getMarginSettings(for: newIndex)
             // Reset the controller bounds for the new page so canvas frames are correct
-            let size = pdfManager.effectiveSize(for: newIndex)
+            let expandedSize = pdfManager.expandedCanvasSize(for: newIndex)
             editorData.clearCanvas()
-            editorData.initializeController(CGRect(origin: .zero, size: size))
-            print("🔧 [Continuous] Initialized canvas for page \(newIndex + 1), size=\(size)")
+            editorData.initializeController(CGRect(origin: .zero, size: expandedSize))
+            print("🔧 [Continuous] Initialized expanded canvas for page \(newIndex + 1), size=\(expandedSize)")
         }
         .onChange(of: pdfManager.displayMode) { oldValue, newValue in
             print("🔄 Display mode changed from \(oldValue.rawValue) to \(newValue.rawValue)")
@@ -952,8 +952,9 @@ struct PDFEditorScreenRefactored: View {
     }
     
     private var singlePagePDFContent: some View {
-        // ✅ Match continuous mode: use effectiveSize for explicit sizing
+        // Use expanded canvas size (2.8x page size for margin drawing)
         let effectiveSize = pdfManager.effectiveSize(for: pdfManager.currentPageIndex)
+        let expandedCanvasSize = pdfManager.expandedCanvasSize(for: pdfManager.currentPageIndex)
 
         return ZStack {
             Color(UIColor.systemGray6)
@@ -969,13 +970,13 @@ struct PDFEditorScreenRefactored: View {
                     )
                     .frame(width: effectiveSize.width, height: effectiveSize.height)
 
-                    // Canvas - sized to match the effective page size (like continuous mode)
+                    // Canvas - sized to EXPANDED canvas (2.8x for margin drawing)
                     UnifiedBoardCanvasView(
                         editorData: editorData,
                         pdfManager: pdfManager,
                         canvasMode: $canvasMode,
                         marginSettings: $marginSettings,
-                        canvasSize: effectiveSize,
+                        canvasSize: expandedCanvasSize,
                         currentPageIndex: pdfManager.currentPageIndex,
                         zoomLevel: pdfManager.zoomLevel,
                         pageRotation: pdfManager.rotationForPage(pdfManager.currentPageIndex),
@@ -1215,9 +1216,9 @@ struct PDFEditorScreenRefactored: View {
         lastPanValue = .zero
         initialZoomForGesture = 1.0
         
-        let pageSize = pdfManager.getCurrentPageSize()
+        let expandedSize = pdfManager.expandedCanvasSize(for: pdfManager.currentPageIndex)
         editorData.clearCanvas()
-        editorData.initializeController(CGRect(origin: .zero, size: pageSize))
+        editorData.initializeController(CGRect(origin: .zero, size: expandedSize))
         
         // ✅ Reapply the current shared tool to all registered controllers
         // Delay slightly to ensure the new controller is registered

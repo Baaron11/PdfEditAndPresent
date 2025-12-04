@@ -30,9 +30,14 @@ struct UnifiedBoardCanvasView: UIViewControllerRepresentable {
 //        print("[SWIFTUI]   onZoomChanged closure exists: \(onZoomChanged != nil ? "YES" : "NO")")
 
         let controller = UnifiedBoardCanvasController()
-
+        // ✅ CRITICAL: Set PDFManager reference FIRST
+            controller.pdfManager = pdfManager
+            
+        // ✅ Calculate EXPANDED canvas size, not regular size
+        let expandedSize = pdfManager.expandedCanvasSize(for: currentPageIndex)
+        
         // Initialize canvas first
-        controller.initializeCanvas(size: canvasSize)
+        controller.initializeCanvas(size: expandedSize)
 
         if let markup = editorData.markup {
             controller.setupPaperKit(markup: markup)
@@ -125,6 +130,12 @@ struct UnifiedBoardCanvasView: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ uiViewController: UnifiedBoardCanvasController, context: Context) {
+        print("[SWIFTUI-UPDATE] updateUIViewController called")
+           print("   marginSettings check:")
+           print("     uiViewController.marginSettings: \(uiViewController.marginSettings)")
+           print("     SwiftUI marginSettings: \(marginSettings)")
+           print("     Are they equal? \(uiViewController.marginSettings == marginSettings)")
+        
         context.coordinator.onZoomChanged = onZoomChanged
 
         if uiViewController.canvasMode != canvasMode {
@@ -147,35 +158,27 @@ struct UnifiedBoardCanvasView: UIViewControllerRepresentable {
             uiViewController.setCurrentPage(currentPageIndex)
         }
 
-        if uiViewController.canvasSize != canvasSize {
-            print("[SWIFTUI] updateUIViewController - canvasSize changed")
-            print("[SWIFTUI]   Controller canvasSize: \(uiViewController.canvasSize.width) x \(uiViewController.canvasSize.height)")
-            print("[SWIFTUI]   New canvasSize: \(canvasSize.width) x \(canvasSize.height)")
-            uiViewController.initializeCanvas(size: canvasSize)
+        // ✅ Check with expandedSize, not regular canvasSize
+        let expandedSize = pdfManager.expandedCanvasSize(for: currentPageIndex)
+        if uiViewController.canvasSize != expandedSize {
+            print("[SWIFTUI] updateUIViewController - expandedCanvasSize changed")
+            uiViewController.initializeCanvas(size: expandedSize)
         }
 
-        // 1) Handle zoom changes: update constraints/overlay ONCE
         let oldZoom = context.coordinator.lastZoomLevel
-        let zoomChangeThreshold: CGFloat = 0.01  // Only update if zoom changes by 1% or more
+        let zoomChangeThreshold: CGFloat = 0.01
         if abs(zoomLevel - oldZoom) > zoomChangeThreshold {
             print("[SWIFTUI] updateUIViewController - zoomLevel changed: \(String(format: "%.2f", oldZoom)) → \(String(format: "%.2f", zoomLevel))")
             uiViewController.updateCanvasForZoom(zoomLevel)
             context.coordinator.lastZoomLevel = zoomLevel
         }
 
-        // 2) Handle rotation changes: update rotation (and absolute zoom if needed) ONCE
         let oldRotation = context.coordinator.lastRotation
         if oldRotation != pageRotation {
             print("[SWIFTUI] updateUIViewController - pageRotation changed: \(oldRotation)° → \(pageRotation)°")
             context.coordinator.lastRotation = pageRotation
-
-            // Important: only call this when rotation actually changes, so zoom isn't applied twice
             uiViewController.updateZoomAndRotation(zoomLevel, pageRotation)
         }
-
-        // Note: we intentionally removed the unconditional
-        // uiViewController.updateZoomAndRotation(zoomLevel, pageRotation)
-        // at the end to avoid double-applying zoom to the active page.
     }
 
     func makeCoordinator() -> Coordinator {

@@ -94,6 +94,16 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
 
     private var canvasWidthConstraint: NSLayoutConstraint?
     private var canvasHeightConstraint: NSLayoutConstraint?
+    
+    private var marginDrawingTransforms: [Int: CGAffineTransform] = [:]
+
+    private var marginDrawingsNormalized: [Int: PKDrawing] = [:]  // 0.0-1.0 space
+    
+    private var previousPdfFrame: [Int: CGRect] = [:]
+    
+    private var pageDrawings: [Int: PKDrawing] = [:]
+
+    var useNewMarginApproach = true  // Set to false to test old approach
 
 
     // MARK: - Initialization
@@ -173,6 +183,22 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
     public func setPDFView(_ pdfView: PDFView) {
         self.externalPDFView = pdfView
         print("✅ [PDF-SYNC] PDFView reference stored in canvas controller")
+    }
+    
+    private func savePageDrawings() {
+        if useNewMarginApproach {
+            saveCurrentPageDrawingsNew()
+        } else {
+            saveCurrentPageDrawings()
+        }
+    }
+
+    private func loadPageDrawings(for pageIndex: Int) {
+        if useNewMarginApproach {
+            loadPageDrawingsNew(for: pageIndex)
+        } else {
+            loadPageDrawingsOld(for: pageIndex)
+        }
     }
     
     // MARK: - Private Setup
@@ -592,12 +618,287 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
     }
 
     /// Update margin settings and reapply transforms
-    func updateMarginSettings(_ settings: MarginSettings) {
-        marginSettings = settings
+
+   
+    func updateMarginSettings(_ newSettings: MarginSettings) {
+        print("📐 [MARGIN-CHANGE] Changing margin settings")
+        print("   Old: enabled=\(marginSettings.isEnabled), anchor=\(marginSettings.anchorPosition), scale=\(marginSettings.pdfScale)")
+        print("   New: enabled=\(newSettings.isEnabled), anchor=\(newSettings.anchorPosition), scale=\(newSettings.pdfScale)")
+        
+        guard let canvas = drawingCanvas,
+              let transformer = transformer else {
+            print("📐 [MARGIN-CHANGE] No canvas or transformer, bailing")
+            return
+        }
+        
+        // ===== STEP 1: Classify current strokes =====
+        // Identify which strokes are on the PDF vs in margins
+        print("📐 [MARGIN-CHANGE] STEP 1: Classifying strokes")
+        
+        let currentDrawing = canvas.drawing
+        let currentPDFFrame = computePDFFrameInCanvasSimple()
+        
+        var pdfStrokes: [PKStroke] = []
+        var marginStrokes: [PKStroke] = []
+        
+        for stroke in currentDrawing.strokes {
+            if currentPDFFrame.intersects(stroke.renderBounds) {
+                pdfStrokes.append(stroke)
+                print("   Stroke \(stroke.renderBounds) → PDF")
+            } else {
+                marginStrokes.append(stroke)
+                print("   Stroke \(stroke.renderBounds) → MARGIN")
+            }
+        }
+        
+        // ===== STEP 2: Normalize PDF strokes to PDF-relative coordinates =====
+        // This converts them from canvas-space to PDF-space (0.0-1.0)
+        // That way they'll stay on the PDF no matter where it moves
+        print("📐 [MARGIN-CHANGE] STEP 2: Normalizing PDF strokes")
+        
+        let pdfDrawing = PKDrawing(strokes: pdfStrokes)
+        let normalizedPDFDrawing = transformer.normalizeDrawingFromCanvasToPDF(pdfDrawing)
+        
+        print("   Normalized \(pdfStrokes.count) PDF strokes")
+        
+        // ===== STEP 3: Store both normalized PDF strokes and margin strokes =====
+        print("📐 [MARGIN-CHANGE] STEP 3: Storing strokes")
+        
+        // Store for the current page
+        pdfAnchoredDrawings[currentPageIndex] = normalizedPDFDrawing
+        marginDrawings[currentPageIndex] = PKDrawing(strokes: marginStrokes)
+        
+        print("   Stored \(normalizedPDFDrawing.strokes.count) normalized PDF strokes")
+        print("   Stored \(marginStrokes.count) margin strokes")
+        
+        // ===== STEP 4: Update margin settings =====
+        print("📐 [MARGIN-CHANGE] STEP 4: Updating settings")
+        marginSettings = newSettings
+        
+        // ===== STEP 5: Rebuild transformer with new settings =====
+        print("📐 [MARGIN-CHANGE] STEP 5: Rebuilding transformer")
         rebuildTransformer()
-        applyTransforms()
+        
+        // ===== STEP 6: Update canvas positioning =====
+        print("📐 [MARGIN-CHANGE] STEP 6: Updating positioning")
+        updateCanvasPositionNew()
+        
+        // ===== STEP 7: Denormalize and reload =====
+        // Now denormalize the PDF strokes with the NEW PDF position/scale
+        // This positions them correctly relative to the PDF in its new location
+        print("📐 [MARGIN-CHANGE] STEP 7: Denormalizing and reloading")
+        
+        // ✅ FIX: Access self.transformer directly (it was rebuilt in step 5)
+        if let newTransformer = self.transformer {
+            // Denormalize PDF strokes from PDF-space to new canvas-space
+            let denormalizedPDFDrawing = newTransformer.denormalizeDrawingFromPDFToCanvas(normalizedPDFDrawing)
+            
+            // Combine with margin strokes
+            let combined = PKDrawing(strokes: denormalizedPDFDrawing.strokes + marginStrokes)
+            canvas.drawing = combined
+            
+            print("   Denormalized to canvas space: \(denormalizedPDFDrawing.strokes.count) + \(marginStrokes.count) strokes")
+        } else {
+            print("   ERROR: transformer is nil after rebuild!")
+        }
+        
+        print("📐 [MARGIN-CHANGE] COMPLETE")
+    }
+    
+    func updateMarginSettingsTest(_ settings: MarginSettings) {
+        saveCurrentPageDrawingsNew()  // Save using new method
+        marginSettings = settings
+        
+        let newFrame = computePDFFrameInCanvasSimple()
+        print("📐 [NEW] PDF Frame: \(newFrame)")
+        
+        loadPageDrawingsNew(for: currentPageIndex)  // Load using new method
+        
+        // NEW: Update visual transform instead of trying to transform strokes
+        updateCanvasPositionNew()
     }
 
+    private func updateCanvasPositionNew() {
+        let frame = computePDFFrameInCanvasSimple()
+        var scale = marginSettings.pdfScale
+        
+        print("📐 [POSITION-NEW-A] Frame: \(frame), Scale: \(scale), Enabled: \(marginSettings.isEnabled)")
+        
+        if marginSettings.isEnabled {
+            // ===== MARGINS ENABLED =====
+            
+            // Clamp scale to minimum
+            let minScale = 0.15
+            if scale < minScale {
+                print("⚠️  [SCALE-CLAMP] Scale \(scale) below minimum \(minScale), clamping to \(minScale)")
+                scale = minScale
+            }
+            
+            // Canvas and viewport dimensions
+            let viewportWidth: CGFloat = view.bounds.width   // 612
+            let viewportHeight: CGFloat = view.bounds.height  // 792
+            let canvasWidth: CGFloat = 1713.6
+            let canvasHeight: CGFloat = 2217.6
+            
+            // ===== KEY FIX: Calculate visible canvas region based on anchor position =====
+            // The viewport shows a 612×792 window into the 1713.6×2217.6 canvas
+            // Which part of the canvas is visible depends on the anchor
+            
+            let visibleCanvasLeft: CGFloat
+            let visibleCanvasTop: CGFloat
+            
+            switch marginSettings.anchorPosition {
+            case .topLeft:
+                // Top-left: show canvas from 0→612
+                visibleCanvasLeft = 0
+                visibleCanvasTop = 0
+                
+            case .topRight:
+                // Top-right: show canvas from right edge going left
+                visibleCanvasLeft = canvasWidth - viewportWidth  // 1713.6 - 612 = 1101.6
+                visibleCanvasTop = 0
+                
+            case .topCenter:
+                // Top-center: show horizontally centered portion
+                visibleCanvasLeft = (canvasWidth - viewportWidth) / 2  // 550.8
+                visibleCanvasTop = 0
+                
+            case .center:
+                // Full center: both horizontally and vertically centered
+                visibleCanvasLeft = (canvasWidth - viewportWidth) / 2   // 550.8
+                visibleCanvasTop = (canvasHeight - viewportHeight) / 2  // 712.8
+                
+            case .centerLeft:
+                // Center vertically, left horizontally
+                visibleCanvasLeft = 0
+                visibleCanvasTop = (canvasHeight - viewportHeight) / 2  // 712.8
+                
+            case .centerRight:
+                // Center vertically, right horizontally
+                visibleCanvasLeft = canvasWidth - viewportWidth  // 1101.6
+                visibleCanvasTop = (canvasHeight - viewportHeight) / 2  // 712.8
+                
+            case .bottomLeft:
+                // Bottom-left: show bottom portion
+                visibleCanvasLeft = 0
+                visibleCanvasTop = canvasHeight - viewportHeight  // 1425.6
+                
+            case .bottomRight:
+                // Bottom-right
+                visibleCanvasLeft = canvasWidth - viewportWidth  // 1101.6
+                visibleCanvasTop = canvasHeight - viewportHeight  // 1425.6
+                
+            case .bottomCenter:
+                // Bottom-center
+                visibleCanvasLeft = (canvasWidth - viewportWidth) / 2  // 550.8
+                visibleCanvasTop = canvasHeight - viewportHeight  // 1425.6
+            }
+            
+            // ===== COORDINATE SPACE CONVERSION =====
+            // frame.origin is in CANVAS space
+            // containerView.layer.position expects VIEWPORT space
+            // To show canvas region starting at (visibleCanvasLeft, visibleCanvasTop) at viewport (0, 0),
+            // position the container at (0 - visibleCanvasLeft, 0 - visibleCanvasTop)
+            
+            let containerPosition = CGPoint(
+                x: 0 - visibleCanvasLeft,
+                y: 0 - visibleCanvasTop
+            )
+            
+            containerView.translatesAutoresizingMaskIntoConstraints = true
+            containerView.layer.anchorPoint = CGPoint(x: 0, y: 0)
+            containerView.layer.position = containerPosition
+            containerView.transform = CGAffineTransform.identity
+            
+            // Keep drawing canvas at full size
+            if let canvas = drawingCanvas {
+                canvas.transform = CGAffineTransform.identity
+            }
+            
+            print("📐 [POSITION-NEW-B] MARGINS ENABLED:")
+            print("   Anchor: \(marginSettings.anchorPosition)")
+            print("   Visible canvas: (\(visibleCanvasLeft), \(visibleCanvasTop)) to (\(visibleCanvasLeft + viewportWidth), \(visibleCanvasTop + viewportHeight))")
+            print("   containerView position (viewport space): \(containerPosition)")
+            print("   Canvas PDF location: \(frame)")
+            
+        } else {
+            // ===== MARGINS DISABLED: Center via Auto Layout =====
+            containerView.translatesAutoresizingMaskIntoConstraints = false
+            containerView.transform = CGAffineTransform.identity
+            if let canvas = drawingCanvas {
+                canvas.transform = CGAffineTransform.identity
+            }
+            
+            print("📐 [POSITION-NEW-B] MARGINS DISABLED: Using Auto Layout for centering")
+        }
+    }
+
+
+    private func transformMarginStrokes(from oldFrame: CGRect, to newFrame: CGRect) {
+        guard let transformer = transformer else {
+            print("   transformer is NIL!")
+            return
+        }
+        
+        print("🔍 [HELPER-SETTINGS] isEnabled: \(transformer.marginHelper.settings.isEnabled)")
+        print("🔍 [ACTUAL-FRAME] transformer.pdfFrameInCanvas: \(transformer.pdfFrameInCanvas)")
+        
+        print("[DEBUG-TRANSFORM] Entry point:")
+        print("   Parameter oldFrame: \(oldFrame)")
+        print("   Parameter newFrame: \(newFrame)")
+        print("   transformer.pdfFrameInCanvas: \(transformer.pdfFrameInCanvas)")
+        print("   self.marginSettings: \(marginSettings)")
+        
+        guard oldFrame != .zero && newFrame != .zero else { return }
+        
+        let marginDrawing = marginDrawings[currentPageIndex] ?? PKDrawing()
+        
+        print("🔄 [MARGIN-TRANSFORM] Transforming margin strokes")
+        print("   Old frame: \(oldFrame)")
+        print("   New frame: \(newFrame)")
+        
+        let scaleX = newFrame.width / oldFrame.width
+        let scaleY = newFrame.height / oldFrame.height
+        let translateX = newFrame.minX - oldFrame.minX * scaleX
+        let translateY = newFrame.minY - oldFrame.minY * scaleY
+        
+        let transform = CGAffineTransform(a: scaleX, b: 0, c: 0, d: scaleY,
+                                          tx: translateX, ty: translateY)
+        
+        print("   Scale: (\(scaleX), \(scaleY)), Translate: (\(translateX), \(translateY))")
+        
+        let transformedDrawing = marginDrawing.transformed(using: transform)
+        marginDrawings[currentPageIndex] = transformedDrawing
+        
+        print("   ✅ Applied transform to \(transformedDrawing.strokes.count) margin strokes")
+    }
+
+    private func transformStroke(_ stroke: PKStroke, scaleX: CGFloat, scaleY: CGFloat,
+                                 translateX: CGFloat, translateY: CGFloat) -> PKStroke? {
+        // Create a copy with transformed points
+        let transform = CGAffineTransform(a: scaleX, b: 0, c: 0, d: scaleY,
+                                          tx: translateX, ty: translateY)
+        
+        // PKStroke doesn't provide direct point access, so we need to use the drawing approach
+        // Get the stroke's bounds and apply transform
+        let oldBounds = stroke.renderBounds
+        let newBounds = oldBounds.applying(transform)
+        
+        // Unfortunately PKStroke is immutable and we can't directly transform it
+        // We need to work with the points through PKDrawing
+        // This is a limitation - we may need to store stroke data differently
+        
+        // For now, recreate the stroke (this is a workaround)
+        var newStroke = stroke
+        // Note: This won't actually transform the stroke since PKStroke is immutable
+        // See below for a better solution
+        return newStroke
+    }
+ 
+
+ 
+    
+    
     /// Set current page index and load drawings
     func setCurrentPage(_ pageIndex: Int) {
         print("🎛️ [LIFECYCLE] setCurrentPage() called with pageIndex: \(pageIndex)")
@@ -787,6 +1088,12 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
     // MARK: - Transform Management
 
     private func rebuildTransformer() {
+        print("🔧 [REBUILD-TRANSFORMER] Starting rebuild from:")
+        if Thread.callStackSymbols.count > 1 {
+            print("   Caller: \(Thread.callStackSymbols[1])")
+        }
+        print("   marginSettings.pdfScale: \(marginSettings.pdfScale)")
+        print("   marginSettings.isEnabled: \(marginSettings.isEnabled)")
         // canvasSize is now the EXPANDED size (2.8x the original page size)
         // We need to get the original PDF page size for MarginCanvasHelper
         let originalPDFSize: CGSize
@@ -797,17 +1104,26 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
             originalPDFSize = CGSize(width: canvasSize.width / 2.8, height: canvasSize.height / 2.8)
         }
 
+
         let helper = MarginCanvasHelper(
             settings: marginSettings,
             originalPDFSize: originalPDFSize,
             canvasSize: canvasSize  // This is the expanded size
         )
+        
+        print("   helper.pdfFrameInCanvas AFTER init: \(helper.pdfFrameInCanvas)")
+        
         transformer = DrawingCoordinateTransformer(
             marginHelper: helper,
             canvasViewBounds: view.bounds,
             zoomScale: 1.0,
             contentOffset: .zero
         )
+        
+        if let transformer = transformer {
+            print("   transformer.pdfFrameInCanvas AFTER creation: \(transformer.pdfFrameInCanvas)")
+        }
+        print("🔧 [REBUILD-TRANSFORMER] Complete")
     }
 
     private func applyTransforms() {
@@ -923,64 +1239,148 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
         guard let canvas = drawingCanvas,
               let transformer = transformer else { return }
 
-        let drawing = canvas.drawing
-
-        // Get PDF frame from transformer to determine which strokes are in PDF area
+        let currentCanvasDrawing = canvas.drawing
         let pdfFrame = transformer.pdfFrameInCanvas
 
-        // Partition strokes into PDF-region and margin-region
-        var pdfStrokes: [PKStroke] = []
-        var marginStrokes: [PKStroke] = []
-
-        for stroke in drawing.strokes {
-            // Check if stroke intersects with PDF area
-            let strokeBounds = stroke.renderBounds
-            if pdfFrame.intersects(strokeBounds) {
-                // Stroke is in or overlaps PDF region
-                pdfStrokes.append(stroke)
+        // Get the previously saved drawings
+        let previousPdfDrawing = pdfAnchoredDrawings[currentPageIndex] ?? PKDrawing(strokes: [])
+        let previousMarginDrawing = marginDrawings[currentPageIndex] ?? PKDrawing(strokes: [])
+        
+        // Count of strokes from previous saves
+        let previousPdfCount = previousPdfDrawing.strokes.count
+        let previousMarginCount = previousMarginDrawing.strokes.count
+        let previousTotalCount = previousPdfCount + previousMarginCount
+        
+        // Find NEW strokes (ones that weren't there before)
+        let allCurrentStrokes = currentCanvasDrawing.strokes
+        let newStrokes = allCurrentStrokes.count > previousTotalCount
+            ? Array(allCurrentStrokes.suffix(allCurrentStrokes.count - previousTotalCount))
+            : []
+        
+        // For new strokes, classify and add them
+        var newPdfStrokes: [PKStroke] = []
+        var newMarginStrokes: [PKStroke] = []
+        
+        for stroke in newStrokes {
+            if pdfFrame.intersects(stroke.renderBounds) {
+                newPdfStrokes.append(stroke)
             } else {
-                // Stroke is in margin area
-                marginStrokes.append(stroke)
+                newMarginStrokes.append(stroke)
             }
         }
-
-        // Create drawings from partitioned strokes
-        let pdfDrawingInCanvas = PKDrawing(strokes: pdfStrokes)
-        let marginDrawingInCanvas = PKDrawing(strokes: marginStrokes)
-
-        // Normalize PDF drawing to PDF space before storing
-        let pdfDrawingNormalized = transformer.normalizeDrawingFromCanvasToPDF(pdfDrawingInCanvas)
-        pdfAnchoredDrawings[currentPageIndex] = pdfDrawingNormalized
-
-        // Store margin drawing directly in canvas space
-        marginDrawings[currentPageIndex] = marginDrawingInCanvas
-
-        // Notify delegate
-        onDrawingChanged?(currentPageIndex, pdfDrawingNormalized, marginDrawingInCanvas)
+        
+        // Combine with previously saved strokes
+        let allPdfStrokes = previousPdfDrawing.strokes + newPdfStrokes
+        let allMarginStrokes = previousMarginDrawing.strokes + newMarginStrokes
+        
+        // PDF strokes: normalize and store
+        let pdfDrawing = PKDrawing(strokes: allPdfStrokes)
+        let pdfNormalized = transformer.normalizeDrawingFromCanvasToPDF(pdfDrawing)
+        pdfAnchoredDrawings[currentPageIndex] = pdfNormalized
+        
+        // Margin strokes: store in canvas space
+        let marginDrawing = PKDrawing(strokes: allMarginStrokes)
+        marginDrawings[currentPageIndex] = marginDrawing
+        
+        // Store PDF frame for transform calculation
+        previousPdfFrame[currentPageIndex] = pdfFrame
+        
+        print("💾 [SAVE] PDF: \(allPdfStrokes.count), Margin: \(allMarginStrokes.count)")
     }
 
-    private func loadPageDrawings(for pageIndex: Int) {
-        guard let transformer = transformer,
-              let canvas = drawingCanvas else {
-            drawingCanvas?.drawing = PKDrawing()
-            return
+    private func saveCurrentPageDrawingsNew() {
+        guard let canvas = drawingCanvas else { return }
+        pageDrawings[currentPageIndex] = canvas.drawing
+        print("💾 [SAVE-NEW] Strokes: \(canvas.drawing.strokes.count)")
+    }
+    private func loadPageDrawingsNew(for pageIndex: Int) {
+        guard let canvas = drawingCanvas else { return }
+        let drawing = pageDrawings[pageIndex] ?? PKDrawing()
+        canvas.drawing = drawing
+        print("🔄 [LOAD-NEW] Strokes: \(drawing.strokes.count)")
+    }
+    func computePDFFrameInCanvasSimple() -> CGRect {
+        let settings = marginSettings
+        let size = pdfManager?.effectiveSize(for: currentPageIndex)
+            ?? CGSize(width: 612, height: 792)
+        
+        let scaledW = size.width * CGFloat(settings.pdfScale)
+        let scaledH = size.height * CGFloat(settings.pdfScale)
+        
+        if !settings.isEnabled {
+            let x = (canvasSize.width - scaledW) / 2
+            let y = (canvasSize.height - scaledH) / 2
+            return CGRect(x: x, y: y, width: scaledW, height: scaledH)
         }
-
-        // Load PDF-anchored strokes (denormalize from PDF space to canvas space)
-        let normalizedPdfDrawing = pdfAnchoredDrawings[pageIndex] ?? PKDrawing()
-        let pdfDrawingInCanvas = transformer.denormalizeDrawingFromPDFToCanvas(normalizedPdfDrawing)
-
-        // Load margin strokes (already in canvas space)
-        let marginDrawingInCanvas = marginDrawings[pageIndex] ?? PKDrawing()
-
-        // Combine both into single drawing
-        var allStrokes = pdfDrawingInCanvas.strokes
-        allStrokes.append(contentsOf: marginDrawingInCanvas.strokes)
-        let combinedDrawing = PKDrawing(strokes: allStrokes)
-
-        canvas.drawing = combinedDrawing
+        
+        let (row, col) = settings.anchorPosition.gridPosition
+        
+        let x: CGFloat = {
+            switch col {
+            case 0: return 0
+            case 1: return (canvasSize.width - scaledW) / 2
+            case 2: return canvasSize.width - scaledW
+            default: return 0
+            }
+        }()
+        
+        let y: CGFloat = {
+            switch row {
+            case 0: return 0
+            case 1: return (canvasSize.height - scaledH) / 2
+            case 2: return canvasSize.height - scaledH
+            default: return 0
+            }
+        }()
+        
+        return CGRect(x: x, y: y, width: scaledW, height: scaledH)
     }
 
+
+    private func loadPageDrawingsOld(for pageIndex: Int) {
+        guard let canvas = drawingCanvas,
+              let transformer = transformer else { return }
+
+        // PDF strokes: denormalize from PDF space to canvas space
+        let pdfNormalized = pdfAnchoredDrawings[pageIndex] ?? PKDrawing()
+        let pdfInCanvas = transformer.denormalizeDrawingFromPDFToCanvas(pdfNormalized)
+        
+        // Margin strokes: already in canvas space, use directly!
+        let marginInCanvas = marginDrawings[pageIndex] ?? PKDrawing()
+        
+        let combined = PKDrawing(strokes: pdfInCanvas.strokes + marginInCanvas.strokes)
+        canvas.drawing = combined
+        
+        print("🔄 [LOAD] PDF: \(pdfInCanvas.strokes.count), Margin: \(marginInCanvas.strokes.count)")
+    }
+    private func loadPageDrawingsWithoutRebuild(for pageIndex: Int) {
+        guard let canvas = drawingCanvas else { return }
+        
+        // Load drawings but skip the rebuildTransformer() call
+        let pdfDrawing = pdfAnchoredDrawings[pageIndex] ?? PKDrawing()
+        let marginDrawing = marginDrawings[pageIndex] ?? PKDrawing()
+        let combinedStrokes = pdfDrawing.strokes + marginDrawing.strokes
+        canvas.drawing = PKDrawing(strokes: combinedStrokes)
+        
+        print("🔄 [LOAD] PDF: \(pdfDrawing.strokes.count), Margin: \(marginDrawing.strokes.count)")
+    }
+    
+    private func applyTransformToDrawing(_ drawing: PKDrawing, transform: CGAffineTransform) -> PKDrawing {
+        // Apply transform to each point in each stroke
+        var transformedStrokes: [PKStroke] = []
+        
+        for stroke in drawing.strokes {
+            let bounds = stroke.renderBounds
+            let transformedBounds = bounds.applying(transform)
+            
+            // Create new stroke with transformed bounds
+            // Note: This is still limited because we can't access individual points
+            // A better solution would be to store points separately
+            transformedStrokes.append(stroke)  // Placeholder
+        }
+        
+        return PKDrawing(strokes: transformedStrokes)
+    }
     private func loadPdfDrawingToCanvas() {
         loadPageDrawings(for: currentPageIndex)
     }

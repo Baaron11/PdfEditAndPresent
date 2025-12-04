@@ -117,10 +117,9 @@ final class DrawingViewModel: ObservableObject {
             // Use protocol-based access to update tools
             if let controller = controller as? UnifiedBoardCanvasController {
                 print("   ✅ Updating controller: \(ObjectIdentifier(controller))")
-                // Only update if tool is not nil (tool is optional, property expects non-optional)
+                // Only update if tool is not nil
                 if let newTool = tool {
-                    controller.pdfDrawingCanvas?.tool = newTool
-                    controller.marginDrawingCanvas?.tool = newTool
+                    controller.drawingCanvas?.tool = newTool  // ✅ Now works - drawingCanvas exists
                     controller.previousTool = newTool
                 }
             }

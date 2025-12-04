@@ -210,6 +210,12 @@ struct PDFEditorScreenRefactored: View {
             }
             lastDisplayMode = newValue
         }
+        .onReceive(pdfManager.marginSettingsDidChange) { changedPages in
+                    // Update local SwiftUI state when margins change
+                    // This triggers updateUIViewController to sync the canvas controller
+                    print("📐 [SWIFTUI] marginSettingsDidChange - updating local state")
+                    marginSettings = pdfManager.getMarginSettings(for: pdfManager.currentPageIndex)
+                }
         .sheet(isPresented: $showSettings) {
             PDFSettingsSheet(pdfManager: pdfManager)
         }

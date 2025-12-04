@@ -841,6 +841,13 @@ extension PDFManager {
     }
     
     func loadMarginSettings() {
+        // ✅ FIX: Only load saved settings for actual saved files
+        // Don't load settings for temporary/unsaved documents
+        guard let url = pdfDocument?.documentURL else {
+            print("ℹ️ No document URL - using default margin settings")
+            return
+        }
+        
         let key = getMarginSettingsKey()
         
         guard let data = UserDefaults.standard.data(forKey: key) else {
@@ -902,8 +909,8 @@ extension PDFManager {
         
         onMarginSettingsChanged?()
         
-        // ✅ NEW: Notify which specific page changed
-        Self.marginSettingsSubject.send([pageIndex])
+        // ✅ FIXED: Send as Set<Int>, not array
+        Self.marginSettingsSubject.send(Set([pageIndex]))
         
         saveMarginSettings()
         
@@ -922,7 +929,7 @@ extension PDFManager {
         
         onMarginSettingsChanged?()
         
-        // ✅ NEW: Notify ALL pages changed
+        // ✅ FIXED: Send nil for all pages
         Self.marginSettingsSubject.send(nil)
         
         saveMarginSettings()

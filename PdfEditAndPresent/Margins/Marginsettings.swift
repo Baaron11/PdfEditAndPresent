@@ -98,22 +98,32 @@ struct MarginCanvasHelper {
     var pdfOffset: CGPoint {
         let scaledSize = scaledPDFSize
         let canvas = canvasSize
+        
+        // CRITICAL: When margins are disabled, ALWAYS center the PDF
+        // Do NOT use anchor positioning when isEnabled == false
+        if !settings.isEnabled {
+            let xPosition = (canvas.width - scaledSize.width) / 2
+            let yPosition = (canvas.height - scaledSize.height) / 2
+            return CGPoint(x: xPosition, y: yPosition)
+        }
+        
+        // When margins are enabled, use anchor positioning
         let (row, col) = settings.anchorPosition.gridPosition
         
         let xPosition: CGFloat = {
             switch col {
-            case 0: return 0
-            case 1: return (canvas.width - scaledSize.width) / 2
-            case 2: return canvas.width - scaledSize.width
+            case 0: return 0  // Left
+            case 1: return (canvas.width - scaledSize.width) / 2  // Center
+            case 2: return canvas.width - scaledSize.width  // Right
             default: return 0
             }
         }()
         
         let yPosition: CGFloat = {
             switch row {
-            case 0: return 0
-            case 1: return (canvas.height - scaledSize.height) / 2
-            case 2: return canvas.height - scaledSize.height
+            case 0: return 0  // Top
+            case 1: return (canvas.height - scaledSize.height) / 2  // Center
+            case 2: return canvas.height - scaledSize.height  // Bottom
             default: return 0
             }
         }()

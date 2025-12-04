@@ -34,6 +34,7 @@ enum MarginSide: Equatable {
     }
 }
 
+
 // MARK: - Drawing Coordinate Transformer (Dual-Layer Dynamic Canvas)
 /// Converts between view space, canvas space, and PDF space.
 /// Supports dual-layer drawing with PDF-anchored and margin-anchored strokes.
@@ -116,21 +117,27 @@ struct DrawingCoordinateTransformer {
         let pdfFrame = marginHelper.pdfFrameInCanvas
         guard pdfFrame.width > 0 && pdfFrame.height > 0 else { return drawing }
 
-        // Transform: translate to PDF origin, then normalize by PDF size
-        let transform = CGAffineTransform(translationX: -pdfFrame.origin.x, y: -pdfFrame.origin.y)
-            .scaledBy(x: 1.0 / pdfFrame.width, y: 1.0 / pdfFrame.height)
+        // Correct matrix: translate to origin, then scale down
+        let transform = CGAffineTransform(
+            a: 1.0 / pdfFrame.width, b: 0,
+            c: 0, d: 1.0 / pdfFrame.height,
+            tx: -pdfFrame.origin.x / pdfFrame.width, ty: -pdfFrame.origin.y / pdfFrame.height
+        )
 
         return drawing.transformed(using: transform)
     }
 
-    /// Convert a PKDrawing from normalized PDF space back to canvas space
+    /// Convert a PKDrawing from normalized PDF space (0-1) back to canvas space
     func denormalizeDrawingFromPDFToCanvas(_ drawing: PKDrawing) -> PKDrawing {
         let pdfFrame = marginHelper.pdfFrameInCanvas
         guard pdfFrame.width > 0 && pdfFrame.height > 0 else { return drawing }
 
-        // Transform: scale by PDF size, then translate to canvas position
-        let transform = CGAffineTransform(scaleX: pdfFrame.width, y: pdfFrame.height)
-            .translatedBy(x: pdfFrame.origin.x / pdfFrame.width, y: pdfFrame.origin.y / pdfFrame.height)
+        // Correct matrix: scale on diagonal, origin as direct translation
+        let transform = CGAffineTransform(
+            a: pdfFrame.width, b: 0,
+            c: 0, d: pdfFrame.height,
+            tx: pdfFrame.origin.x, ty: pdfFrame.origin.y
+        )
 
         return drawing.transformed(using: transform)
     }
@@ -157,7 +164,7 @@ struct DrawingCoordinateTransformer {
         return CGPoint(x: normalizedX, y: normalizedY)
     }
 
-    /// Convert a normalized PDF point back to canvas space
+    /// Convert a normalized PDF point (0-1) back to canvas space
     func pdfNormalizedToCanvasPoint(_ normalizedPoint: CGPoint) -> CGPoint {
         let pdfFrame = marginHelper.pdfFrameInCanvas
         let canvasX = normalizedPoint.x * pdfFrame.width + pdfFrame.origin.x

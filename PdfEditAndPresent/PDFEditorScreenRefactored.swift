@@ -920,7 +920,7 @@ struct PDFEditorScreenRefactored: View {
                         }
                     }
                 )
-                .padding(.bottom, 12)
+                //.padding(.bottom, 12)
                 .background(.ultraThinMaterial)
                 .shadow(radius: 3)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -943,106 +943,23 @@ struct PDFEditorScreenRefactored: View {
     }
     
     private var singlePageView: some View {
-        HStack(spacing: 0) {
-            if isSidebarOpen {
-                PDFThumbnailSidebar(
-                    pdfManager: pdfManager,
-                    isOpen: $isSidebarOpen
-                )
-                .transition(.move(edge: .leading))
+        ZStack(alignment: .bottom) {
+            HStack(spacing: 0) {
+                if isSidebarOpen {
+                    PDFThumbnailSidebar(
+                        pdfManager: pdfManager,
+                        isOpen: $isSidebarOpen
+                    )
+                    .transition(.move(edge: .leading))
+                }
+                
+                singlePagePDFContent
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             
-            singlePagePDFContent
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-    }
-    
-    private var singlePagePDFContent: some View {
-        // Use expanded canvas size (2.8x page size for margin drawing)
-        let effectiveSize = pdfManager.effectiveSize(for: pdfManager.currentPageIndex)
-        let expandedCanvasSize = pdfManager.expandedCanvasSize(for: pdfManager.currentPageIndex)
-
-        return ZStack {
-            Color(UIColor.systemGray6)
-                .ignoresSafeArea()
-
-            // Wrap in ScrollView to prevent overflow - allows panning when content exceeds available space
-            ScrollView([.horizontal, .vertical], showsIndicators: false) {
-                ZStack(alignment: .topLeading) {
-                    // PDF background - explicitly sized to match canvas
-                    PDFPageBackground(
-                        pdfManager: pdfManager,
-                        currentPageIndex: pdfManager.currentPageIndex
-                    )
-                    .frame(width: effectiveSize.width, height: effectiveSize.height)
-
-                    // Canvas - sized to EXPANDED canvas (2.8x for margin drawing)
-                    UnifiedBoardCanvasView(
-                        editorData: editorData,
-                        pdfManager: pdfManager,
-                        canvasMode: $canvasMode,
-                        marginSettings: $marginSettings,
-                        canvasSize: expandedCanvasSize,
-                        currentPageIndex: pdfManager.currentPageIndex,
-                        zoomLevel: pdfManager.zoomLevel,
-                        pageRotation: pdfManager.rotationForPage(pdfManager.currentPageIndex),
-                        onModeChanged: { newMode in
-                            print("📍 Canvas mode: \(newMode)")
-                        },
-                        onPaperKitItemAdded: {
-                            print("📌 Item added to canvas - marking as unsaved")
-                            pdfViewModel.hasUnsavedChanges = true
-                        },
-                        onDrawingChanged: { pageIndex, pdfDrawing, marginDrawing in
-                            if let pdfDrawing = pdfDrawing {
-                                pdfManager.setPdfAnchoredDrawing(pdfDrawing, for: pageIndex)
-                            }
-                            if let marginDrawing = marginDrawing {
-                                pdfManager.setMarginDrawing(marginDrawing, for: pageIndex)
-                            }
-                        },
-                        onToolAPIReady: { api in
-                            print("🧩 Tool API ready (single page mode)")
-
-                            if let controller = api.canvasController {
-                                print("   🔗 [SETUP] Assigning toolStateProvider to controller")
-                                controller.toolStateProvider = drawingVM
-                                print("   🔗 [SETUP] toolStateProvider assigned ✅")
-
-                                print("   📡 [REGISTER] Registering controller with DrawingViewModel")
-                                drawingVM.registerCanvasController(controller)
-                                print("   📡 [REGISTER] Controller registered ✅")
-                            }
-
-                            let adapter = UnifiedBoardCanvasAdapter(
-                                api: api,
-                                controller: api.canvasController
-                            )
-                            self.drawingCanvasAdapter = adapter
-                            drawingVM.attachCanvas(adapter)
-                        },
-                        onZoomChanged: { newZoom in  // ✅ MOVE TO END
-                            print("🔍 [SYNC] Canvas pinch zoom → updating pdfManager to \(String(format: "%.2f", newZoom))x")
-                            pdfManager.setZoom(newZoom)
-                            initialZoomForGesture = newZoom
-                        }
-                    )
-                    .frame(width: effectiveSize.width, height: effectiveSize.height)
-                }
-                // Explicitly size ZStack to match the page (like continuous mode)
-                .frame(width: effectiveSize.width, height: effectiveSize.height)
-                // Zoom applied to BOTH PDF and canvas together
-                .scaleEffect(pdfManager.zoomLevel, anchor: .topLeading)
-                // Frame after scale to ensure ScrollView knows the scaled size
-                .frame(
-                    width: effectiveSize.width * pdfManager.zoomLevel,
-                    height: effectiveSize.height * pdfManager.zoomLevel
-                )
-            }
-
-            // Note: panGestureOverlay removed - ScrollView now handles panning natively
-
-            if showDrawingToolbar, let _ = drawingCanvasAdapter {
+            // === Drawing toolbar overlay (OUTSIDE HStack to span full width) ===
+            // ✅ SAME STRUCTURE AS CONTINUOUS MODE - no VStack wrapper
+            if showDrawingToolbar {
                 DrawingToolbar(
                     selectedBrush: $selectedBrush,
                     drawingViewModel: drawingVM,
@@ -1061,25 +978,106 @@ struct PDFEditorScreenRefactored: View {
                         }
                     }
                 )
-                .padding(.horizontal, 12)
-                .padding(.bottom, 10)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                .background(.ultraThinMaterial)
+                .shadow(radius: 3)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity) // Allow outer ZStack to fill space for sidebar
-        .clipped()
-        .onSizeChange { size in
-            viewportSize = size
-        }
-        .gesture(singlePageZoomGesture)
-        .onChange(of: canvasMode) { _, newMode in
-            if newMode == .selecting {
-                showDrawingToolbar = false
+                .zIndex(3)
             }
         }
     }
+        
+        private var singlePagePDFContent: some View {
+            // Use expanded canvas size (2.8x page size for margin drawing)
+            let effectiveSize = pdfManager.effectiveSize(for: pdfManager.currentPageIndex)
+            let expandedCanvasSize = pdfManager.expandedCanvasSize(for: pdfManager.currentPageIndex)
 
+            return ZStack(alignment: .topLeading) {
+                Color(UIColor.systemGray6)
+                    .ignoresSafeArea()
+
+                // Wrap in ScrollView to prevent overflow - allows panning when content exceeds available space
+                ScrollView([.horizontal, .vertical], showsIndicators: false) {
+                    ZStack(alignment: .topLeading) {
+                        // PDF background - explicitly sized to match canvas
+                        PDFPageBackground(
+                            pdfManager: pdfManager,
+                            currentPageIndex: pdfManager.currentPageIndex
+                        )
+                        .frame(width: effectiveSize.width, height: effectiveSize.height)
+
+                        // Canvas - sized to EXPANDED canvas (2.8x for margin drawing)
+                        UnifiedBoardCanvasView(
+                            editorData: editorData,
+                            pdfManager: pdfManager,
+                            canvasMode: $canvasMode,
+                            marginSettings: $marginSettings,
+                            canvasSize: expandedCanvasSize,
+                            currentPageIndex: pdfManager.currentPageIndex,
+                            zoomLevel: pdfManager.zoomLevel,
+                            pageRotation: pdfManager.rotationForPage(pdfManager.currentPageIndex),
+                            onModeChanged: { newMode in
+                                print("📍 Canvas mode: \(newMode)")
+                            },
+                            onPaperKitItemAdded: {
+                                print("📌 Item added to canvas - marking as unsaved")
+                                pdfViewModel.hasUnsavedChanges = true
+                            },
+                            onDrawingChanged: { pageIndex, pdfDrawing, marginDrawing in
+                                if let pdfDrawing = pdfDrawing {
+                                    pdfManager.setPdfAnchoredDrawing(pdfDrawing, for: pageIndex)
+                                }
+                                if let marginDrawing = marginDrawing {
+                                    pdfManager.setMarginDrawing(marginDrawing, for: pageIndex)
+                                }
+                            },
+                            onToolAPIReady: { api in
+                                print("🧩 Tool API ready (single page mode)")
+
+                                if let controller = api.canvasController {
+                                    print("   🔗 [SETUP] Assigning toolStateProvider to controller")
+                                    controller.toolStateProvider = drawingVM
+                                    print("   🔗 [SETUP] toolStateProvider assigned ✅")
+
+                                    print("   📡 [REGISTER] Registering controller with DrawingViewModel")
+                                    drawingVM.registerCanvasController(controller)
+                                    print("   📡 [REGISTER] Controller registered ✅")
+                                }
+
+                                let adapter = UnifiedBoardCanvasAdapter(
+                                    api: api,
+                                    controller: api.canvasController
+                                )
+                                self.drawingCanvasAdapter = adapter
+                                drawingVM.attachCanvas(adapter)
+                            },
+                            onZoomChanged: { newZoom in
+                                print("🔍 [SYNC] Canvas pinch zoom → updating pdfManager to \(String(format: "%.2f", newZoom))x")
+                                pdfManager.setZoom(newZoom)
+                                initialZoomForGesture = newZoom
+                            }
+                        )
+                        .frame(width: effectiveSize.width, height: effectiveSize.height)
+                    }
+                    // Explicitly size ZStack to match the page (like continuous mode)
+                    .frame(width: effectiveSize.width, height: effectiveSize.height)
+                    // Zoom applied to BOTH PDF and canvas together
+                    .scaleEffect(pdfManager.zoomLevel, anchor: .topLeading)
+                    // Frame after scale to ensure ScrollView knows the scaled size
+                    .frame(
+                        width: effectiveSize.width * pdfManager.zoomLevel,
+                        height: effectiveSize.height * pdfManager.zoomLevel
+                    )
+                }
+
+                // Note: panGestureOverlay removed - ScrollView now handles panning natively
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity) // Allow outer ZStack to fill space for sidebar
+            .clipped()
+            .onSizeChange { size in
+                viewportSize = size
+            }
+            .gesture(singlePageZoomGesture)
+        }
 
 
 

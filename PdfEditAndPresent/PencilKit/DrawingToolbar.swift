@@ -1,6 +1,3 @@
-// DrawingToolbar.swift
-// Location: Shared/Views/Drawing/DrawingToolbar.swift
-
 import SwiftUI
 
 struct DrawingToolbar: View {
@@ -12,6 +9,7 @@ struct DrawingToolbar: View {
 
     @State private var showBrushEditor = false
     @State private var isCursorSelected = false
+    @AppStorage("showBrushNames") private var showBrushNames: Bool = true
 
     enum DrawingToolMode {
         case cursorPan
@@ -23,28 +21,29 @@ struct DrawingToolbar: View {
             Divider()
 
             HStack(spacing: 12) {
-
-                Button(action: {
-                    isCursorSelected = true
-                    selectedBrush = nil
-                    onToolModeChanged?(.cursorPan)
-                }) {
-                    Image(systemName: "pointer.arrow")
-                        .font(.system(size: 18))
-                        .frame(width: 44, height: 44)
-                        .background(Circle().fill(isCursorSelected ?
-                            Color.blue.opacity(0.15) : Color.gray.opacity(0.2)))
-                }
+                // ===== SELECT/CURSOR TOOL =====
+                ToolButton(
+                    iconName: "pointer.arrow",
+                    label: "Select",
+                    isSelected: isCursorSelected,
+                    showNames: showBrushNames,
+                    action: {
+                        isCursorSelected = true
+                        selectedBrush = nil
+                        onToolModeChanged?(.cursorPan)
+                    }
+                )
 
                 Divider().frame(height: 30)
 
-                // Brush buttons
+                // ===== BRUSH BUTTONS (Scrollable) =====
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 16) {
                         ForEach(brushManager.brushes) { brush in
                             BrushButton(
                                 brush: brush,
                                 isSelected: selectedBrush?.id == brush.id,
+                                showBrushNames: showBrushNames,
                                 action: {
                                     selectedBrush = brush
                                     isCursorSelected = false
@@ -59,24 +58,19 @@ struct DrawingToolbar: View {
 
                 Spacer()
 
-                // ===== Ruler Toggle =====
-                Button(action: {
-                    drawingViewModel.toggleRuler()
-                }) {
-                    Image(systemName: drawingViewModel.isRulerActive ? "ruler.fill" : "ruler")
-                        .font(.system(size: 18))
-                        .foregroundColor(drawingViewModel.isRulerActive ? .blue : .primary)
-                        .frame(width: 44, height: 44)
-                        .background(
-                            Circle()
-                                .fill(drawingViewModel.isRulerActive ? Color.blue.opacity(0.15) : Color.gray.opacity(0.2))
-                        )
-                        .accessibilityLabel(drawingViewModel.isRulerActive ? "Hide Ruler" : "Show Ruler")
-                }
+                // ===== RULER =====
+                ToolButton(
+                    iconName: drawingViewModel.isRulerActive ? "ruler.fill" : "ruler",
+                    label: "Ruler",
+                    isSelected: drawingViewModel.isRulerActive,
+                    showNames: showBrushNames,
+                    action: {
+                        drawingViewModel.toggleRuler()
+                    }
+                )
 
-                // ===== Lasso (with actions menu) =====
+                // ===== LASSO =====
                 Menu {
-                    // Primary lasso toggle at top
                     Button {
                         if drawingViewModel.isLassoActive {
                             drawingViewModel.endLasso()
@@ -89,7 +83,6 @@ struct DrawingToolbar: View {
 
                     Divider()
 
-                    // Selection actions
                     Button {
                         drawingViewModel.cut()
                     } label: {
@@ -117,7 +110,7 @@ struct DrawingToolbar: View {
                     Button {
                         drawingViewModel.selectAll()
                     } label: {
-                        Label("Select All", systemImage: "selection.pin.in.out") // fallback if missing; any icon ok
+                        Label("Select All", systemImage: "selection.pin.in.out")
                     }
 
                     Button {
@@ -127,93 +120,172 @@ struct DrawingToolbar: View {
                     }
 
                 } label: {
-                    Image(systemName: drawingViewModel.isLassoActive ? "lasso.and.sparkles" : "lasso")
-                        .font(.system(size: 18))
-                        .foregroundColor(drawingViewModel.isLassoActive ? .blue : .primary)
-                        .frame(width: 44, height: 44)
-                        .background(
-                            Circle()
-                                .fill(drawingViewModel.isLassoActive ? Color.blue.opacity(0.15) : Color.gray.opacity(0.2))
-                        )
-                        .accessibilityLabel("Lasso")
+                    ToolButton(
+                        iconName: drawingViewModel.isLassoActive ? "lasso.and.sparkles" : "lasso",
+                        label: "Lasso",
+                        isSelected: drawingViewModel.isLassoActive,
+                        showNames: showBrushNames,
+                        action: {}  // Menu handles the action
+                    )
                 }
 
-                // Edit brushes
-                Button(action: { showBrushEditor = true }) {
-                    Image(systemName: "slider.horizontal.3")
-                        .font(.system(size: 18))
-                        .foregroundColor(.blue)
-                        .frame(width: 44, height: 44)
-                        .background(
-                            Circle()
-                                .fill(Color.gray.opacity(0.2))
-                        )
-                }
+                // ===== SETTINGS/EDIT BRUSHES =====
+                ToolButton(
+                    iconName: "slider.horizontal.3",
+                    label: "Settings",
+                    isSelected: false,
+                    showNames: showBrushNames,
+                    action: { showBrushEditor = true },
+                    accentColor: .blue
+                )
 
                 Divider().frame(height: 30)
 
-                // Undo/Redo
-                HStack(spacing: 12) {
-                    Button(action: { drawingViewModel.undo() }) {
-                        Image(systemName: "arrow.uturn.backward")
-                            .font(.system(size: 18))
-                            .foregroundColor(drawingViewModel.canUndo ? .primary : .gray)
-                    }
-                    .disabled(!drawingViewModel.canUndo)
+                // ===== UNDO/REDO =====
+                ToolButton(
+                    iconName: "arrow.uturn.backward",
+                    label: "Undo",
+                    isSelected: false,
+                    showNames: showBrushNames,
+                    action: { drawingViewModel.undo() },
+                    isDisabled: !drawingViewModel.canUndo
+                )
 
-                    Button(action: { drawingViewModel.redo() }) {
-                        Image(systemName: "arrow.uturn.forward")
-                            .font(.system(size: 18))
-                            .foregroundColor(drawingViewModel.canRedo ? .primary : .gray)
-                    }
-                    .disabled(!drawingViewModel.canRedo)
-                }
+                ToolButton(
+                    iconName: "arrow.uturn.forward",
+                    label: "Redo",
+                    isSelected: false,
+                    showNames: showBrushNames,
+                    action: { drawingViewModel.redo() },
+                    isDisabled: !drawingViewModel.canRedo
+                )
 
                 Divider().frame(height: 30)
 
-                // Clear
-                Button(action: onClear) {
-                    Image(systemName: "trash")
-                        .font(.system(size: 18))
-                        .foregroundColor(.red)
-                }
+                // ===== CLEAR =====
+                ToolButton(
+                    iconName: "trash",
+                    label: "Clear",
+                    isSelected: false,
+                    showNames: showBrushNames,
+                    action: onClear,
+                    accentColor: .red
+                )
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 12)
+            .padding(.top, 12)
             .background(Color(UIColor.systemBackground))
         }
+        .background(Color(UIColor.systemBackground))
+        .ignoresSafeArea(edges: .bottom)
         .onAppear {
             isCursorSelected = true
             onToolModeChanged?(.cursorPan)
         }
         .sheet(isPresented: $showBrushEditor) {
-            BrushEditorView(brushManager: brushManager)
+            BrushEditorView(
+                brushManager: brushManager,
+                showBrushNames: $showBrushNames
+            )
         }
     }
 }
 
+// MARK: - Unified Tool Button Component
+struct ToolButton: View {
+    let iconName: String
+    let label: String
+    let isSelected: Bool
+    let showNames: Bool
+    let action: () -> Void
+    var isDisabled: Bool = false
+    var accentColor: Color = .blue
+
+    var body: some View {
+        Button(action: action) {
+            if showNames {
+                // When showing names: stack icon + text
+                VStack(spacing: 4) {
+                    Image(systemName: iconName)
+                        .font(.system(size: 20))
+                        .foregroundColor(isSelected ? .white : (isDisabled ? .gray : .primary))
+                        .frame(width: 44, height: 44)
+                        .background(
+                            Circle()
+                                .fill(isSelected ? accentColor : Color.gray.opacity(0.2))
+                        )
+
+                    Text(label)
+                        .font(.system(size: 10))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                        .frame(maxWidth: 50)
+                        .frame(height: 12)
+                }
+            } else {
+                // When hiding names: center icon vertically
+                VStack {
+                    Spacer()
+                    Image(systemName: iconName)
+                        .font(.system(size: 20))
+                        .foregroundColor(isSelected ? .white : (isDisabled ? .gray : .primary))
+                        .frame(width: 44, height: 44)
+                        .background(
+                            Circle()
+                                .fill(isSelected ? accentColor : Color.gray.opacity(0.2))
+                        )
+                    Spacer()
+                }
+                .frame(height: 56)  // Same total height as when names are shown
+            }
+        }
+        .disabled(isDisabled)
+    }
+}
+
+// MARK: - Brush Button (specialized for brushes)
 struct BrushButton: View {
     let brush: BrushConfiguration
     let isSelected: Bool
+    let showBrushNames: Bool
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 4) {
-                Image(systemName: brush.type.iconName)
-                    .font(.system(size: 20))
-                    .foregroundColor(isSelected ? .white : brush.color.color)
-                    .frame(width: 44, height: 44)
-                    .background(
-                        Circle()
-                            .fill(isSelected ? brush.color.color : Color.gray.opacity(0.2))
-                    )
+            if showBrushNames {
+                // When showing names: stack icon + text
+                VStack(spacing: 4) {
+                    Image(systemName: brush.type.iconName)
+                        .font(.system(size: 20))
+                        .foregroundColor(isSelected ? .white : brush.color.color)
+                        .frame(width: 44, height: 44)
+                        .background(
+                            Circle()
+                                .fill(isSelected ? brush.color.color : Color.gray.opacity(0.2))
+                        )
 
-                Text(brush.name)
-                    .font(.system(size: 10))
-                    .foregroundColor(isSelected ? brush.color.color : .secondary)
-                    .lineLimit(1)
-                    .frame(maxWidth: 50)
+                    Text(brush.name)
+                        .font(.system(size: 10))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                        .frame(maxWidth: 50)
+                        .frame(height: 12)
+                }
+            } else {
+                // When hiding names: center icon vertically
+                VStack {
+                    Spacer()
+                    Image(systemName: brush.type.iconName)
+                        .font(.system(size: 20))
+                        .foregroundColor(isSelected ? .white : brush.color.color)
+                        .frame(width: 44, height: 44)
+                        .background(
+                            Circle()
+                                .fill(isSelected ? brush.color.color : Color.gray.opacity(0.2))
+                        )
+                    Spacer()
+                }
+                .frame(height: 56)  // Same total height as when names are shown
             }
         }
     }

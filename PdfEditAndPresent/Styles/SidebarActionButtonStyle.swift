@@ -2,7 +2,6 @@
 //  SidebarActionButtonStyle.swift
 //  PdfEditAndPresent
 //
-//  Created by Claude on 2025-11-19.
 //
 
 import SwiftUI

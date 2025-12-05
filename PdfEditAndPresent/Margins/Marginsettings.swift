@@ -57,7 +57,7 @@ struct MarginSettings: Codable, Equatable {
     var appliedToAllPages: Bool = false
     
     init(
-        anchorPosition: AnchorPosition = .center,
+        anchorPosition: AnchorPosition = .topLeft,
         pdfScale: CGFloat = 1.0,
         appliedToAllPages: Bool = false
     ) {

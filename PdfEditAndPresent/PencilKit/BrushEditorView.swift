@@ -1,14 +1,3 @@
-//
-//  BrushEditorView.swift
-//  PDFMaster
-//
-//  Created by Brandon Ramirez on 10/18/25.
-//
-
-
-// BrushEditorView.swift
-// Location: Shared/Views/Drawing/BrushEditorView.swift
-
 import SwiftUI
 
 struct BrushEditorView: View {
@@ -17,6 +6,9 @@ struct BrushEditorView: View {
     
     @State private var showingAddBrush = false
     @State private var editingBrush: BrushConfiguration?
+    
+    @Binding var showBrushNames: Bool
+
     
     var body: some View {
         NavigationView {
@@ -42,12 +34,14 @@ struct BrushEditorView: View {
                 }
                 
                 Section {
+                    Toggle("Show Tool Names", isOn: $showBrushNames)
+                    
                     Button(action: {
                         showingAddBrush = true
                     }) {
                         Label("Add New Brush", systemImage: "plus.circle.fill")
                     }
-                    
+
                     Button(role: .destructive, action: {
                         brushManager.resetToDefaults()
                     }) {
@@ -276,8 +270,13 @@ struct BrushEditSheet: View {
 // MARK: - Preview
 #if DEBUG
 struct BrushEditorView_Previews: PreviewProvider {
+    @State static var showBrushNames = true
+
     static var previews: some View {
-        BrushEditorView(brushManager: BrushManager())
+        BrushEditorView(
+            brushManager: BrushManager(),
+            showBrushNames: $showBrushNames
+        )
     }
 }
 #endif

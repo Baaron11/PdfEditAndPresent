@@ -144,11 +144,35 @@ struct PDFEditorScreenRefactored: View {
 
     // MARK: - File Menu State
     @State private var showInsertPageDialog = false
+
+    // MARK: - Teaching Tools State
+    @State private var showTeachingToolsDrawer = false
+    @State private var showPaperKitCanvas = false
+    @State private var paperKitCanvasSize = CGSize(width: 400, height: 800)
+    @StateObject private var teachingToolsViewModel = TeachingToolsViewModel()
+    @State private var addMode: AddMode = .drag
     
     var body: some View {
-        VStack(spacing: 0) {
-            toolbarView
-            contentAreaView
+        ZStack {
+            // Main content
+            VStack(spacing: 0) {
+                toolbarView
+                mainContentWithPaperKit
+            }
+
+            // Teaching Tools Drawer overlay
+            TeachingToolsDrawer(
+                isOpen: $showTeachingToolsDrawer,
+                viewModel: teachingToolsViewModel,
+                addMode: $addMode,
+                onToolSelected: { tool in
+                    editorData.insertToolFromDrawer(tool)
+                },
+                onClearCanvas: {
+                    editorData.clearCanvas()
+                }
+            )
+            .zIndex(100)
         }
         .onAppear {
             print("📄 Editor view appeared - initializing PDF")
@@ -561,15 +585,43 @@ struct PDFEditorScreenRefactored: View {
                 }
                 .accessibilityLabel("Drawing Tools")
 
-                Button(action: { /* TODO */ }) {
-                    Text("Elements")
-                        .font(.system(size: 12, weight: .semibold))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(Color.blue)
-                        .foregroundColor(.white)
-                        .cornerRadius(8)
+                // Elements button (Teaching Tools)
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showTeachingToolsDrawer.toggle()
+                        // Auto-show PaperKit canvas when opening drawer
+                        if showTeachingToolsDrawer && !showPaperKitCanvas {
+                            showPaperKitCanvas = true
+                        }
+                    }
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 12))
+                        Text("Elements")
+                            .font(.system(size: 12, weight: .semibold))
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(showTeachingToolsDrawer ? Color.blue : Color.blue.opacity(0.8))
+                    .foregroundColor(.white)
+                    .cornerRadius(8)
                 }
+
+                // Toggle PaperKit canvas visibility
+                Button(action: {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        showPaperKitCanvas.toggle()
+                    }
+                }) {
+                    Image(systemName: "square.on.square")
+                        .font(.system(size: 13))
+                        .frame(width: ToolbarMetrics.button, height: ToolbarMetrics.button)
+                        .background(showPaperKitCanvas ? Color.blue.opacity(0.15) : Color.gray.opacity(0.1))
+                        .cornerRadius(8)
+                        .foregroundColor(showPaperKitCanvas ? .blue : .primary)
+                }
+                .accessibilityLabel("Toggle PaperKit Canvas")
             }
             .padding(.vertical, 4)
         }
@@ -816,6 +868,63 @@ struct PDFEditorScreenRefactored: View {
         }
     }
     
+    // MARK: - Main Content with PaperKit Canvas
+
+    private var mainContentWithPaperKit: some View {
+        GeometryReader { geometry in
+            HStack(spacing: 0) {
+                // Left: Main PDF content
+                contentAreaView
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                // Divider between canvases
+                if showPaperKitCanvas {
+                    Rectangle()
+                        .fill(Color.gray.opacity(0.3))
+                        .frame(width: 2)
+                }
+
+                // Right: PaperKit Canvas
+                if showPaperKitCanvas {
+                    VStack(spacing: 0) {
+                        // Header bar for PaperKit canvas
+                        HStack {
+                            Text("Elements Canvas")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(.secondary)
+
+                            Spacer()
+
+                            Button(action: {
+                                editorData.clearCanvas()
+                            }) {
+                                Image(systemName: "trash")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(Color(.systemGray6))
+
+                        // PaperKit Canvas
+                        PaperKitCanvasView(
+                            data: editorData,
+                            size: CGSize(
+                                width: min(400, geometry.size.width * 0.35),
+                                height: geometry.size.height - 40
+                            )
+                        )
+                        .frame(maxHeight: .infinity)
+                    }
+                    .frame(width: min(400, geometry.size.width * 0.35))
+                    .background(Color(.systemBackground))
+                    .transition(.move(edge: .trailing))
+                }
+            }
+        }
+    }
+
     // MARK: - Content Area View
     private var contentAreaView: some View {
         Group {

@@ -1,12 +1,10 @@
 //
-//  DrawingViewModel.swift (UPDATED)
+//  DrawingViewModel.swift
 //  UnifiedBoard
 //
-// Key changes:
-// 1. Added NSHashTable to track all active canvas controllers
-// 2. Added registerCanvasController() method
-// 3. Added broadcastToolChange() method that updates ALL controllers
-// 4. Modified selectBrush() to call broadcastToolChange instead of single callback
+// Undo/Redo: Uses PKCanvasView's built-in undoManager as single source of truth.
+// The ViewModel observes undo manager notifications and updates UI state accordingly.
+// No manual undo registration or competing handlers - clean and reliable.
 
 import SwiftUI
 import PencilKit
@@ -54,14 +52,6 @@ final class DrawingViewModel: ObservableObject {
     // Ruler + Lasso state for toolbar
     @Published var isRulerActive: Bool = false
     @Published var isLassoActive: Bool = false
-
-    // MARK: - Undo Manager
-    weak var undoManager: UndoManager?
-
-    // MARK: - Canvas Integration Handlers
-    var canvasUndoHandler: (() -> Void)?
-    var canvasRedoHandler: (() -> Void)?
-    // NOTE: Removed set-undo-manager handler; PKCanvasView.undoManager is get-only
 
     // MARK: - Private
     private var cancellables = Set<AnyCancellable>()
@@ -156,7 +146,45 @@ final class DrawingViewModel: ObservableObject {
         lasso.onDidEndLasso   = { [weak self] _ in self?.isLassoActive = false }
         self.lassoController = lasso
 
+        // UNDO/REDO: Observe the canvas's built-in undo manager
+        observeUndoManager(canvasView.undoManager)
+
         syncFromCanvas()
+    }
+
+    // MARK: - Undo Manager Observation
+    private func observeUndoManager(_ manager: UndoManager?) {
+        // Remove old observers
+        undoObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        undoObservers.removeAll()
+
+        guard let manager = manager else {
+            canUndo = false
+            canRedo = false
+            return
+        }
+
+        // Observe all relevant undo manager notifications
+        let notifications: [Notification.Name] = [
+            .NSUndoManagerDidUndoChange,
+            .NSUndoManagerDidRedoChange,
+            .NSUndoManagerDidOpenUndoGroup,
+            .NSUndoManagerDidCloseUndoGroup,
+            .NSUndoManagerCheckpoint
+        ]
+
+        for notificationName in notifications {
+            let observer = NotificationCenter.default.addObserver(
+                forName: notificationName,
+                object: manager,
+                queue: .main
+            ) { [weak self] _ in
+                self?.updateUndoRedoState()
+            }
+            undoObservers.append(observer)
+        }
+
+        updateUndoRedoState()
     }
 
     func syncFromCanvas() {
@@ -196,97 +224,39 @@ final class DrawingViewModel: ObservableObject {
     func selectAll()       { lassoController?.selectAll() }
     func duplicate()       { lassoController?.duplicate() }
 
-    // MARK: - Undo Manager Attachment
-    func attachUndoManager(_ manager: UndoManager?) {
-        print("📎 Attaching undo manager: \(manager != nil ? "YES" : "NO")")
-
-        // Remove old observers
-        undoObservers.forEach { NotificationCenter.default.removeObserver($0) }
-        undoObservers.removeAll()
-
-        // Store
-        undoManager = manager
-
-        guard let manager = manager else {
-            canUndo = false
-            canRedo = false
-            print("⚠️ No undo manager - undo/redo disabled")
-            return
-        }
-
-        print("✅ Undo manager attached successfully")
-        print("   Levels of undo: \(manager.levelsOfUndo)")
-
-        let didUndo = NotificationCenter.default.addObserver(
-            forName: .NSUndoManagerDidUndoChange,
-            object: manager,
-            queue: .main
-        ) { [weak self] _ in
-            print("🔔 Did undo notification")
-            self?.updateUndoRedoState()
-        }
-
-        let didRedo = NotificationCenter.default.addObserver(
-            forName: .NSUndoManagerDidRedoChange,
-            object: manager,
-            queue: .main
-        ) { [weak self] _ in
-            print("🔔 Did redo notification")
-            self?.updateUndoRedoState()
-        }
-
-        undoObservers = [didUndo, didRedo]
-        updateUndoRedoState()
-    }
-
     private func updateUndoRedoState() {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
-            let canUndo = self.undoManager?.canUndo ?? false
-            let canRedo = self.undoManager?.canRedo ?? false
-            print("🔄 Updating undo/redo state:")
-            print("   Can Undo: \(canUndo)")
-            print("   Can Redo: \(canRedo)")
-            self.canUndo = canUndo
-            self.canRedo = canRedo
+            // Use the canvas's built-in undo manager as single source of truth
+            let undoManager = self.canvasView?.undoManager
+            let newCanUndo = undoManager?.canUndo ?? false
+            let newCanRedo = undoManager?.canRedo ?? false
+
+            // Only update if changed to avoid unnecessary UI updates
+            if self.canUndo != newCanUndo || self.canRedo != newCanRedo {
+                self.canUndo = newCanUndo
+                self.canRedo = newCanRedo
+            }
         }
     }
 
     // MARK: - Undo/Redo Actions
     func undo() {
-        print("⏪ Undo called")
-        print("   Has handler: \(canvasUndoHandler != nil)")
-        print("   Has undo manager: \(undoManager != nil)")
-        print("   Can undo: \(undoManager?.canUndo ?? false)")
-
-        // Prefer adapter if available
+        // Use canvas adapter if available (UnifiedBoard mode), otherwise use canvas directly
         if let adapter = canvasAdapter {
             adapter.undo()
-        } else if let handler = canvasUndoHandler {
-            print("   Using canvas handler")
-            handler()
         } else {
-            print("   Using undo manager directly")
-            undoManager?.undo()
+            canvasView?.undoManager?.undo()
         }
         updateUndoRedoState()
     }
 
     func redo() {
-        print("⏩ Redo called")
-        print("   Has handler: \(canvasRedoHandler != nil)")
-        print("   Has undo manager: \(undoManager != nil)")
-        print("   Can redo: \(undoManager?.canRedo ?? false)")
-
-        // Prefer adapter if available
+        // Use canvas adapter if available (UnifiedBoard mode), otherwise use canvas directly
         if let adapter = canvasAdapter {
             adapter.redo()
-        } else if let handler = canvasRedoHandler {
-            print("   Using canvas handler")
-            handler()
         } else {
-            print("   Using undo manager directly")
-            undoManager?.redo()
+            canvasView?.undoManager?.redo()
         }
         updateUndoRedoState()
     }
@@ -303,7 +273,7 @@ final class DrawingViewModel: ObservableObject {
 
     func saveDrawing(_ drawing: PKDrawing, for page: Int) {
         let oldDrawing = drawings[page]
-        undoManager?.registerUndo(withTarget: self) { target in
+        canvasView?.undoManager?.registerUndo(withTarget: self) { target in
             target.drawings[page] = oldDrawing
             target.isModified = true
         }
@@ -319,11 +289,12 @@ final class DrawingViewModel: ObservableObject {
     func clearDrawing(for page: Int) {
         guard let drawing = drawings[page], !drawing.strokes.isEmpty else { return }
 
-        undoManager?.beginUndoGrouping()
-        undoManager?.setActionName("Clear Page")
+        let um = canvasView?.undoManager
+        um?.beginUndoGrouping()
+        um?.setActionName("Clear Page")
 
         let oldDrawing = drawing
-        undoManager?.registerUndo(withTarget: self) { target in
+        um?.registerUndo(withTarget: self) { target in
             target.drawings[page] = oldDrawing
             target.isModified = true
         }
@@ -331,17 +302,18 @@ final class DrawingViewModel: ObservableObject {
         drawings[page] = PKDrawing()
         isModified = true
 
-        undoManager?.endUndoGrouping()
+        um?.endUndoGrouping()
     }
 
     func clearAllDrawings() {
         guard !drawings.isEmpty else { return }
 
-        undoManager?.beginUndoGrouping()
-        undoManager?.setActionName("Clear All Pages")
+        let um = canvasView?.undoManager
+        um?.beginUndoGrouping()
+        um?.setActionName("Clear All Pages")
 
         let previousDrawings = drawings
-        undoManager?.registerUndo(withTarget: self) { target in
+        um?.registerUndo(withTarget: self) { target in
             target.drawings = previousDrawings
             target.isModified = true
         }
@@ -349,7 +321,7 @@ final class DrawingViewModel: ObservableObject {
         drawings = [:]
         isModified = true
 
-        undoManager?.endUndoGrouping()
+        um?.endUndoGrouping()
     }
 
     // MARK: - Import/Export
@@ -365,11 +337,12 @@ final class DrawingViewModel: ObservableObject {
     }
 
     func importDrawingsData(_ data: Data) {
-        undoManager?.beginUndoGrouping()
-        undoManager?.setActionName("Import Drawings")
+        let um = canvasView?.undoManager
+        um?.beginUndoGrouping()
+        um?.setActionName("Import Drawings")
 
         let previousDrawings = drawings
-        undoManager?.registerUndo(withTarget: self) { target in
+        um?.registerUndo(withTarget: self) { target in
             target.drawings = previousDrawings
             target.isModified = false
         }
@@ -383,15 +356,16 @@ final class DrawingViewModel: ObservableObject {
             print("Failed to import drawings: \(error)")
         }
 
-        undoManager?.endUndoGrouping()
+        um?.endUndoGrouping()
     }
 
     func importDrawings(_ newDrawings: [Int: PKDrawing]) {
-        undoManager?.beginUndoGrouping()
-        undoManager?.setActionName("Import Drawings")
+        let um = canvasView?.undoManager
+        um?.beginUndoGrouping()
+        um?.setActionName("Import Drawings")
 
         let previousDrawings = drawings
-        undoManager?.registerUndo(withTarget: self) { target in
+        um?.registerUndo(withTarget: self) { target in
             target.drawings = previousDrawings
             target.isModified = false
         }
@@ -399,7 +373,7 @@ final class DrawingViewModel: ObservableObject {
         drawings = newDrawings
         isModified = false
 
-        undoManager?.endUndoGrouping()
+        um?.endUndoGrouping()
 
         print("Imported \(newDrawings.count) drawings")
     }

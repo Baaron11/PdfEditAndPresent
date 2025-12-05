@@ -129,7 +129,7 @@ struct PDFExportHelper {
         guard let originalPage = pdfManager.pdfDocument?.page(at: pageIndex) else { return nil }
         let newDocument = PDFDocument()
 
-        if !marginHelper.settings.isEnabled {
+        if marginHelper.settings.pdfScale == 1.0  {
             newDocument.insert(originalPage, at: 0)
         } else {
             let originalBounds = originalPage.bounds(for: .mediaBox)

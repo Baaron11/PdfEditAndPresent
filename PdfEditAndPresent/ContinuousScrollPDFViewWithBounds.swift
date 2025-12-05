@@ -134,7 +134,7 @@ struct ContinuousScrollPDFViewWithBounds: View {
         guard let page = pdfManager.pdfDocument?.page(at: pageIndex) else { return }
         let settings = pdfManager.getMarginSettings(for: pageIndex)
 
-        let image: UIImage? = settings.isEnabled
+        let image: UIImage? = settings.pdfScale < 1.0
             ? renderPageWithMargins(page: page, marginSettings: settings)
             : renderPageNormal(page: page)
 

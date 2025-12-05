@@ -280,7 +280,7 @@ extension DrawingCoordinateTransformer {
         print("Content Offset: \(contentOffset)")
         print("")
         print("Margin Settings:")
-        print("  - Enabled: \(marginHelper.settings.isEnabled)")
+        print("  - Scale: \(String(format: "%.0f%%", marginHelper.settings.pdfScale * 100))")
         print("  - Anchor: \(marginHelper.settings.anchorPosition.rawValue)")
         print("  - Scale: \(Int(marginHelper.settings.pdfScale * 100))%")
         print("")

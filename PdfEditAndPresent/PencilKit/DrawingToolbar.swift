@@ -29,7 +29,7 @@ struct DrawingToolbar: View {
                     selectedBrush = nil
                     onToolModeChanged?(.cursorPan)
                 }) {
-                    Image(systemName: "arrow.up.left")
+                    Image(systemName: "pointer.arrow")
                         .font(.system(size: 18))
                         .frame(width: 44, height: 44)
                         .background(Circle().fill(isCursorSelected ?

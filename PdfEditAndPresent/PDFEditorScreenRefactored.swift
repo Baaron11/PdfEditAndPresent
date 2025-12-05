@@ -793,7 +793,7 @@ struct PDFEditorScreenRefactored: View {
     private var marginSettingsButton: some View {
         Button("Margin") { showMarginSettings = true }
             .buttonStyle(.bordered)
-            .tint(pdfManager.hasMarginEnabled ? .blue : .gray)
+            .tint(pdfManager.getMarginSettings(for: pdfManager.currentPageIndex).pdfScale < 1.0 ? .blue : .gray)
     }
     
     private var modeToggleView: some View {

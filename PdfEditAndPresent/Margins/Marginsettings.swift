@@ -45,20 +45,22 @@ enum AnchorPosition: String, CaseIterable, Codable, Hashable {
 }
 
 // MARK: - Margin Settings (Per-Page Configuration)
+/// Margins are ALWAYS enabled. Scale controls how much margin space appears.
+/// - scale = 1.0 (100%): Full PDF size, no visible margins
+/// - scale = 0.8 (80%): PDF at 80%, 20% margin space around it
+/// - scale = 0.1 (10%): PDF at 10%, 90% margin space around it
+/// - anchorPosition: Where the scaled PDF sits within the margin space
 struct MarginSettings: Codable, Equatable {
-    var isEnabled: Bool = false
     var anchorPosition: AnchorPosition = .center
-    /// 0.1 ... 1.0 (1.0 = original size, <1.0 shrinks PDF to create visible margins)
+    /// 0.1 ... 1.0 (1.0 = original size/no visible margins, <1.0 creates visible margins)
     var pdfScale: CGFloat = 1.0
     var appliedToAllPages: Bool = false
     
     init(
-        isEnabled: Bool = false,
         anchorPosition: AnchorPosition = .center,
         pdfScale: CGFloat = 1.0,
         appliedToAllPages: Bool = false
     ) {
-        self.isEnabled = isEnabled
         self.anchorPosition = anchorPosition
         self.pdfScale = max(0.1, min(pdfScale, 1.0))
         self.appliedToAllPages = appliedToAllPages
@@ -67,7 +69,7 @@ struct MarginSettings: Codable, Equatable {
 
 // MARK: - Margin Canvas Helper (Dynamic Canvas)
 /// Positions and converts between the PDF and a logical "canvas" that defaults to the actual page size.
-/// If pdfScale < 1, margin space appears within the canvas around the scaled down PDF.
+/// pdfScale controls how much of the canvas the PDF occupies (rest is margin space).
 struct MarginCanvasHelper {
     let settings: MarginSettings
     let originalPDFSize: CGSize
@@ -94,20 +96,10 @@ struct MarginCanvasHelper {
         )
     }
     
-    /// Offset of the scaled PDF within the canvas based on anchor.
+    /// Offset of the scaled PDF within the canvas based on anchor position.
     var pdfOffset: CGPoint {
-        let scaledSize = scaledPDFSize
         let canvas = canvasSize
-        
-        // CRITICAL: When margins are disabled, ALWAYS center the PDF
-        // Do NOT use anchor positioning when isEnabled == false
-        if !settings.isEnabled {
-            let xPosition = (canvas.width - scaledSize.width) / 2
-            let yPosition = (canvas.height - scaledSize.height) / 2
-            return CGPoint(x: xPosition, y: yPosition)
-        }
-        
-        // When margins are enabled, use anchor positioning
+        let scaledSize = scaledPDFSize
         let (row, col) = settings.anchorPosition.gridPosition
         
         let xPosition: CGFloat = {
@@ -168,7 +160,7 @@ struct MarginCanvasHelper {
         pdfFrameInCanvas.contains(point)
     }
     
-    /// Margins are the empty areas of the canvas around the scaled PDF
+    /// Margin areas: empty space around the scaled PDF within the canvas
     func getMarginAreas() -> (top: CGRect, bottom: CGRect, left: CGRect, right: CGRect) {
         let pdfFrame = pdfFrameInCanvas
         let canvas = canvasSize

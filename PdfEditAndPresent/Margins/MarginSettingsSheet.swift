@@ -5,7 +5,6 @@ struct MarginSettingsSheet: View {
     @ObservedObject var pdfManager: PDFManager
     @Environment(\.dismiss) var dismiss
     
-    @State private var isEnabled: Bool = false
     @State private var anchorPosition: AnchorPosition = .topLeft   // default when enabling
     @State private var pdfScale: CGFloat = 0.8                     // default when enabling
     @State private var applyToAllPages: Bool = false
@@ -29,24 +28,15 @@ struct MarginSettingsSheet: View {
             Divider()
             
             // MARK: Enable Margins Toggle
-            HStack {
-                Text("Enable Margins")
-                    .font(.system(size: 14, weight: .medium))
-                Spacer()
-                Toggle("", isOn: $isEnabled)
-                    .onChange(of: isEnabled) { oldValue, newValue in
-                        if newValue {
-                            // Smart defaults on enable
-                            anchorPosition = .topLeft
-                            pdfScale = 0.8
-                        }
-                    }
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
+//            HStack {
+//                Text("Enable Margins")
+//                    .font(.system(size: 14, weight: .medium))
+//                Spacer()
+//            }
+//            .padding(.horizontal, 20)
+//            .padding(.vertical, 12)
             
             // Only show controls when enabled
-            if isEnabled {
                 Divider()
                 
                 // MARK: Main content (side-by-side)
@@ -159,7 +149,7 @@ struct MarginSettingsSheet: View {
                 .padding(.vertical, 16)
                 
                 Divider()
-            }
+            
             
             // MARK: Action Buttons
             HStack(spacing: 12) {
@@ -187,7 +177,7 @@ struct MarginSettingsSheet: View {
             .padding(.vertical, 12)
         }
         .background(Color(.systemBackground))
-        .presentationDetents(isEnabled ? [.large] : [.fraction(0.25)])
+        .presentationDetents([.large])
         .presentationDragIndicator(.hidden)
         .onAppear(perform: loadCurrentSettings)
         // If page changes while the sheet is open, keep the preview/settings in sync
@@ -200,7 +190,6 @@ struct MarginSettingsSheet: View {
     
     private func loadCurrentSettings() {
         let currentSettings = pdfManager.getMarginSettings(for: pdfManager.currentPageIndex)
-        isEnabled = currentSettings.isEnabled
         anchorPosition = currentSettings.anchorPosition
         pdfScale = currentSettings.pdfScale
         applyToAllPages = currentSettings.appliedToAllPages
@@ -218,7 +207,6 @@ struct MarginSettingsSheet: View {
     private var previewCanvas: some View {
         let helper = MarginCanvasHelper(
             settings: MarginSettings(
-                isEnabled: isEnabled,
                 anchorPosition: anchorPosition,
                 pdfScale: pdfScale
             ),
@@ -254,7 +242,6 @@ struct MarginSettingsSheet: View {
     
     private func applySettings() {
         let newSettings = MarginSettings(
-            isEnabled: isEnabled,
             anchorPosition: anchorPosition,
             pdfScale: pdfScale,
             appliedToAllPages: applyToAllPages

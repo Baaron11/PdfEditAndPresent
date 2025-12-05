@@ -165,6 +165,7 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
 
         // At this point containerView has a real size - reapply transforms
         applyTransforms()
+        updateCanvasMask()
 
         // Debug prints for canvas frames AFTER layout
         if let canvas = drawingCanvas {
@@ -243,6 +244,90 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
         // Start from the current view and search downward
         disableGesturesInView(self.view)
     }
+    // MARK: - Canvas Masking
+
+    /// Create a mask layer that clips canvas visibility to only the PDF area
+    private func updateCanvasMask() {
+        print("🎭 [MASK] Updating canvas mask")
+        
+        guard let canvas = drawingCanvas else {
+            print("🎭 [MASK] No canvas to mask")
+            return
+        }
+        
+        guard let pdfManager = pdfManager else {
+            print("🎭 [MASK] No PDF manager available")
+            return
+        }
+        
+        let settings = marginSettings
+        let pageSize = pdfManager.getCurrentPageSize()
+        let isRotated90or270 = currentPageRotation == 90 || currentPageRotation == 270
+        
+        // TRUE PAGE DIMENSIONS - swap for 90°/270° rotations
+        let truePageWidth: CGFloat = isRotated90or270 ? pageSize.height : pageSize.width
+        let truePageHeight: CGFloat = isRotated90or270 ? pageSize.width : pageSize.height
+        
+        // CONTAINER DIMENSIONS - calculated from actual page size (2.8x expansion)
+        let baseContainerWidth: CGFloat = pageSize.width * 2.8
+        let baseContainerHeight: CGFloat = pageSize.height * 2.8
+        
+        let containerWidth: CGFloat = isRotated90or270 ? baseContainerHeight : baseContainerWidth
+        let containerHeight: CGFloat = isRotated90or270 ? baseContainerWidth : baseContainerHeight
+        
+        // ✅ Ensure canvas bounds are correct before applying mask
+        // After reconfigureCanvasConstraints() and rotation, bounds should match canvasSize
+        let correctBounds = CGRect(x: 0, y: 0, width: canvasSize.width, height: canvasSize.height)
+        if canvas.bounds != correctBounds {
+            print("🎭 [MASK] Correcting canvas bounds before mask application")
+            print("🎭 [MASK]   Current bounds: \(canvas.bounds)")
+            print("🎭 [MASK]   Setting to: \(correctBounds)")
+            canvas.bounds = correctBounds
+        }
+        
+        // Calculate margin space
+        let marginSpaceHorizontal: CGFloat = (containerWidth - truePageWidth) / 2.0
+        let marginSpaceVertical: CGFloat = (containerHeight - truePageHeight) / 2.0
+        
+        // Calculate mask position based on anchor
+        let maskX: CGFloat
+        let maskY: CGFloat
+        
+        switch settings.anchorPosition {
+        case .topLeft: (maskX, maskY) = (0, 0)
+        case .topCenter: (maskX, maskY) = (marginSpaceHorizontal, 0)
+        case .topRight: (maskX, maskY) = (containerWidth - truePageWidth, 0)
+        case .centerLeft: (maskX, maskY) = (0, marginSpaceVertical)
+        case .center: (maskX, maskY) = (marginSpaceHorizontal, marginSpaceVertical)
+        case .centerRight: (maskX, maskY) = (containerWidth - truePageWidth, marginSpaceVertical)
+        case .bottomLeft: (maskX, maskY) = (0, containerHeight - truePageHeight)
+        case .bottomCenter: (maskX, maskY) = (marginSpaceHorizontal, containerHeight - truePageHeight)
+        case .bottomRight: (maskX, maskY) = (containerWidth - truePageWidth, containerHeight - truePageHeight)
+        }
+        
+        let maskRect = CGRect(x: maskX, y: maskY, width: truePageWidth, height: truePageHeight)
+        let maskPath = UIBezierPath(rect: maskRect)
+        
+        let maskLayer = CAShapeLayer()
+        maskLayer.path = maskPath.cgPath
+        maskLayer.fillColor = UIColor.black.cgColor
+        
+        canvas.layer.mask = maskLayer
+        
+        print("🎭 [MASK] Rotation: \(currentPageRotation)°")
+        print("🎭 [MASK] Page size: \(pageSize)")
+        print("🎭 [MASK] True page: \(truePageWidth) × \(truePageHeight)")
+        print("🎭 [MASK] Container: \(containerWidth) × \(containerHeight)")
+        print("🎭 [MASK] Canvas bounds (verified): \(canvas.bounds)")
+        print("🎭 [MASK] Anchor: \(settings.anchorPosition)")
+        print("🎭 [MASK] Applied mask rect: \(maskRect)")
+    }
+    /// Update mask whenever canvas position or PDF size changes
+    private func updateCanvasMaskIfNeeded() {
+        // Call this in updateCanvasPositionNew() and whenever PDF frame changes
+        updateCanvasMask()
+    }
+
     // MARK: - Canvas Setup Helpers
 
     private func pinCanvas(_ canvas: PKCanvasView, to host: UIView) {
@@ -622,8 +707,6 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
    
     func updateMarginSettings(_ newSettings: MarginSettings) {
         print("📐 [MARGIN-CHANGE] Changing margin settings")
-        print("   Old: enabled=\(marginSettings.isEnabled), anchor=\(marginSettings.anchorPosition), scale=\(marginSettings.pdfScale)")
-        print("   New: enabled=\(newSettings.isEnabled), anchor=\(newSettings.anchorPosition), scale=\(newSettings.pdfScale)")
         
         guard let canvas = drawingCanvas,
               let transformer = transformer else {
@@ -702,6 +785,7 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
             print("   ERROR: transformer is nil after rebuild!")
         }
         
+        updateCanvasMask()
         print("📐 [MARGIN-CHANGE] COMPLETE")
     }
     
@@ -719,118 +803,108 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
     }
 
     private func updateCanvasPositionNew() {
-        let frame = computePDFFrameInCanvasSimple()
-        var scale = marginSettings.pdfScale
+        let settings = marginSettings
+        let isRotated90or270 = currentPageRotation == 90 || currentPageRotation == 270
         
-        print("📐 [POSITION-NEW-A] Frame: \(frame), Scale: \(scale), Enabled: \(marginSettings.isEnabled)")
-        
-        if marginSettings.isEnabled {
-            // ===== MARGINS ENABLED =====
-            
-            // Clamp scale to minimum
-            let minScale = 0.15
-            if scale < minScale {
-                print("⚠️  [SCALE-CLAMP] Scale \(scale) below minimum \(minScale), clamping to \(minScale)")
-                scale = minScale
-            }
-            
-            // Canvas and viewport dimensions
-            let viewportWidth: CGFloat = view.bounds.width   // 612
-            let viewportHeight: CGFloat = view.bounds.height  // 792
-            let canvasWidth: CGFloat = 1713.6
-            let canvasHeight: CGFloat = 2217.6
-            
-            // ===== KEY FIX: Calculate visible canvas region based on anchor position =====
-            // The viewport shows a 612×792 window into the 1713.6×2217.6 canvas
-            // Which part of the canvas is visible depends on the anchor
-            
-            let visibleCanvasLeft: CGFloat
-            let visibleCanvasTop: CGFloat
-            
-            switch marginSettings.anchorPosition {
-            case .topLeft:
-                // Top-left: show canvas from 0→612
-                visibleCanvasLeft = 0
-                visibleCanvasTop = 0
-                
-            case .topRight:
-                // Top-right: show canvas from right edge going left
-                visibleCanvasLeft = canvasWidth - viewportWidth  // 1713.6 - 612 = 1101.6
-                visibleCanvasTop = 0
-                
-            case .topCenter:
-                // Top-center: show horizontally centered portion
-                visibleCanvasLeft = (canvasWidth - viewportWidth) / 2  // 550.8
-                visibleCanvasTop = 0
-                
-            case .center:
-                // Full center: both horizontally and vertically centered
-                visibleCanvasLeft = (canvasWidth - viewportWidth) / 2   // 550.8
-                visibleCanvasTop = (canvasHeight - viewportHeight) / 2  // 712.8
-                
-            case .centerLeft:
-                // Center vertically, left horizontally
-                visibleCanvasLeft = 0
-                visibleCanvasTop = (canvasHeight - viewportHeight) / 2  // 712.8
-                
-            case .centerRight:
-                // Center vertically, right horizontally
-                visibleCanvasLeft = canvasWidth - viewportWidth  // 1101.6
-                visibleCanvasTop = (canvasHeight - viewportHeight) / 2  // 712.8
-                
-            case .bottomLeft:
-                // Bottom-left: show bottom portion
-                visibleCanvasLeft = 0
-                visibleCanvasTop = canvasHeight - viewportHeight  // 1425.6
-                
-            case .bottomRight:
-                // Bottom-right
-                visibleCanvasLeft = canvasWidth - viewportWidth  // 1101.6
-                visibleCanvasTop = canvasHeight - viewportHeight  // 1425.6
-                
-            case .bottomCenter:
-                // Bottom-center
-                visibleCanvasLeft = (canvasWidth - viewportWidth) / 2  // 550.8
-                visibleCanvasTop = canvasHeight - viewportHeight  // 1425.6
-            }
-            
-            // ===== COORDINATE SPACE CONVERSION =====
-            // frame.origin is in CANVAS space
-            // containerView.layer.position expects VIEWPORT space
-            // To show canvas region starting at (visibleCanvasLeft, visibleCanvasTop) at viewport (0, 0),
-            // position the container at (0 - visibleCanvasLeft, 0 - visibleCanvasTop)
-            
-            let containerPosition = CGPoint(
-                x: 0 - visibleCanvasLeft,
-                y: 0 - visibleCanvasTop
-            )
-            
-            containerView.translatesAutoresizingMaskIntoConstraints = true
-            containerView.layer.anchorPoint = CGPoint(x: 0, y: 0)
-            containerView.layer.position = containerPosition
-            containerView.transform = CGAffineTransform.identity
-            
-            // Keep drawing canvas at full size
-            if let canvas = drawingCanvas {
-                canvas.transform = CGAffineTransform.identity
-            }
-            
-            print("📐 [POSITION-NEW-B] MARGINS ENABLED:")
-            print("   Anchor: \(marginSettings.anchorPosition)")
-            print("   Visible canvas: (\(visibleCanvasLeft), \(visibleCanvasTop)) to (\(visibleCanvasLeft + viewportWidth), \(visibleCanvasTop + viewportHeight))")
-            print("   containerView position (viewport space): \(containerPosition)")
-            print("   Canvas PDF location: \(frame)")
-            
-        } else {
-            // ===== MARGINS DISABLED: Center via Auto Layout =====
-            containerView.translatesAutoresizingMaskIntoConstraints = false
-            containerView.transform = CGAffineTransform.identity
-            if let canvas = drawingCanvas {
-                canvas.transform = CGAffineTransform.identity
-            }
-            
-            print("📐 [POSITION-NEW-B] MARGINS DISABLED: Using Auto Layout for centering")
+        // Get actual page size and swap for rotation
+        guard let pdfManager = pdfManager else {
+            print("📐 [POSITION] No PDF manager available")
+            return
         }
+        
+        let pageSize = pdfManager.getCurrentPageSize()
+        
+        // TRUE PAGE DIMENSIONS - swap for 90°/270° rotations
+        let truePageWidth: CGFloat = isRotated90or270 ? pageSize.height : pageSize.width
+        let truePageHeight: CGFloat = isRotated90or270 ? pageSize.width : pageSize.height
+        
+        // CONTAINER DIMENSIONS - swap for 90°/270° rotations
+        let baseContainerWidth: CGFloat = pageSize.width * 2.8
+        let baseContainerHeight: CGFloat = pageSize.height * 2.8
+        
+        let containerWidth: CGFloat = isRotated90or270 ? baseContainerHeight : baseContainerWidth
+        let containerHeight: CGFloat = isRotated90or270 ? baseContainerWidth : baseContainerHeight
+        
+        // Calculate margin space
+        let marginSpaceHorizontal: CGFloat = (containerWidth - truePageWidth) / 2.0
+        let marginSpaceVertical: CGFloat = (containerHeight - truePageHeight) / 2.0
+        
+        // Calculate visible canvas position based on anchor
+        let visibleCanvasLeft: CGFloat
+        let visibleCanvasTop: CGFloat
+        
+        switch settings.anchorPosition {
+        case .topLeft:
+            visibleCanvasLeft = 0
+            visibleCanvasTop = 0
+        case .topCenter:
+            visibleCanvasLeft = marginSpaceHorizontal
+            visibleCanvasTop = 0
+        case .topRight:
+            visibleCanvasLeft = containerWidth - truePageWidth
+            visibleCanvasTop = 0
+        case .centerLeft:
+            visibleCanvasLeft = 0
+            visibleCanvasTop = marginSpaceVertical
+        case .center:
+            visibleCanvasLeft = marginSpaceHorizontal
+            visibleCanvasTop = marginSpaceVertical
+        case .centerRight:
+            visibleCanvasLeft = containerWidth - truePageWidth
+            visibleCanvasTop = marginSpaceVertical
+        case .bottomLeft:
+            visibleCanvasLeft = 0
+            visibleCanvasTop = containerHeight - truePageHeight
+        case .bottomCenter:
+            visibleCanvasLeft = marginSpaceHorizontal
+            visibleCanvasTop = containerHeight - truePageHeight
+        case .bottomRight:
+            visibleCanvasLeft = containerWidth - truePageWidth
+            visibleCanvasTop = containerHeight - truePageHeight
+        }
+        
+        let containerPosition = CGPoint(x: 0 - visibleCanvasLeft, y: 0 - visibleCanvasTop)
+        
+        // ALWAYS USE TRANSFORMS - NO AUTO LAYOUT
+        containerView.constraints.forEach { $0.isActive = false }
+        if let superview = containerView.superview {
+            superview.constraints.forEach { constraint in
+                if constraint.firstItem as? UIView == containerView ||
+                   constraint.secondItem as? UIView == containerView {
+                    constraint.isActive = false
+                }
+            }
+        }
+        
+        containerView.transform = CGAffineTransform.identity
+        containerView.translatesAutoresizingMaskIntoConstraints = true
+        containerView.layer.anchorPoint = CGPoint(x: 0, y: 0)
+        containerView.layer.position = containerPosition
+        
+        print("📐 [POSITION] Rotation: \(currentPageRotation)°")
+        print("📐 [POSITION] True page: \(truePageWidth) × \(truePageHeight)")
+        print("📐 [POSITION] Container: \(containerWidth) × \(containerHeight)")
+        print("📐 [POSITION] Anchor: \(settings.anchorPosition)")
+        print("📐 [POSITION] Position: \(containerPosition)")
+    }
+
+    private func updateCanvasMaskToViewport() {
+        print("🎭 [MASK-VIEWPORT] Updating canvas mask to viewport area")
+        
+        guard let canvas = drawingCanvas else {
+            print("🎭 [MASK-VIEWPORT] No canvas to mask")
+            return
+        }
+        
+        let viewportFrame = CGRect(x: 0, y: 0, width: view.bounds.width, height: view.bounds.height)
+        
+        let maskPath = UIBezierPath(rect: viewportFrame)
+        let maskLayer = CAShapeLayer()
+        maskLayer.path = maskPath.cgPath
+        maskLayer.fillColor = UIColor.black.cgColor
+        
+        canvas.layer.mask = maskLayer
+        print("🎭 [MASK-VIEWPORT] Applied viewport mask: \(viewportFrame)")
     }
 
 
@@ -840,7 +914,7 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
             return
         }
         
-        print("🔍 [HELPER-SETTINGS] isEnabled: \(transformer.marginHelper.settings.isEnabled)")
+        
         print("🔍 [ACTUAL-FRAME] transformer.pdfFrameInCanvas: \(transformer.pdfFrameInCanvas)")
         
         print("[DEBUG-TRANSFORM] Entry point:")
@@ -927,6 +1001,7 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
 
         print("🎛️ [LIFECYCLE]   About to call applyTransforms()")
         applyTransforms()
+        updateCanvasMask()
         print("🎛️ [LIFECYCLE]   setCurrentPage() complete")
     }
 
@@ -973,118 +1048,6 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
     }
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     // MARK: - Transform Management
 
     private func rebuildTransformer() {
@@ -1092,8 +1055,7 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
         if Thread.callStackSymbols.count > 1 {
             print("   Caller: \(Thread.callStackSymbols[1])")
         }
-        print("   marginSettings.pdfScale: \(marginSettings.pdfScale)")
-        print("   marginSettings.isEnabled: \(marginSettings.isEnabled)")
+        
         // canvasSize is now the EXPANDED size (2.8x the original page size)
         // We need to get the original PDF page size for MarginCanvasHelper
         let originalPDFSize: CGSize
@@ -1135,104 +1097,82 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
         print("🔄 [TRANSFORM] applyTransforms() called")
         print("🔄 [TRANSFORM]   canvasSize: \(canvasSize.width) x \(canvasSize.height)")
         print("🔄 [TRANSFORM]   currentPageRotation: \(currentPageRotation)°")
-        print("🔄 [TRANSFORM]   containerView.bounds: \(containerView.bounds)")
 
         // Apply display transform to pdfHost (PaperKit) only
         let displayTransform = transformer.displayTransform
         paperKitView?.transform = displayTransform
 
         // Apply rotation transform to canvas views
-        let rotationRadians = CGFloat(currentPageRotation) * .pi / 180.0
+        //let rotationRadians = CGFloat(currentPageRotation) * .pi / 180.0
 
-        print("🔄 [TRANSFORM]   rotationRadians: \(rotationRadians)")
+        //print("🔄 [TRANSFORM]   rotationRadians: \(rotationRadians)")
 
-        // Determine container size based on rotation
-        let isRotated90or270 = (currentPageRotation == 90 || currentPageRotation == 270)
-        let containerWidth = isRotated90or270 ? canvasSize.height : canvasSize.width
-        let containerHeight = isRotated90or270 ? canvasSize.width : canvasSize.height
+        // Canvas size is ALREADY rotated by PDFManager - don't swap it
+        let containerWidth = canvasSize.width
+        let containerHeight = canvasSize.height
 
-        print("🔄 [TRANSFORM]   isRotated90or270: \(isRotated90or270)")
-        print("🔄 [TRANSFORM]   containerSize: \(containerWidth) x \(containerHeight)")
+        print("🔄 [TRANSFORM]   Container should be: \(containerWidth) x \(containerHeight)")
 
-        // Update container bounds to match rotated page dimensions
+        // Update container bounds to match the canvas size (which is already rotated)
         containerView.bounds = CGRect(x: 0, y: 0, width: containerWidth, height: containerHeight)
+        
+        print("🔄 [TRANSFORM]   Set containerView.bounds: \(containerView.bounds)")
 
-        // Use bounds and center instead of frame - these are stable with transforms
-        // Set canvas bounds to the original canvas size (before visual rotation)
+        // Canvas matches container
         let canvasBounds = CGRect(x: 0, y: 0, width: canvasSize.width, height: canvasSize.height)
         drawingCanvas?.bounds = canvasBounds
-        // marginDrawingCanvas removed - using single unified canvas
 
-        // Calculate the center position that will place the rotated canvas at origin
-        // After rotation, the visual frame has dimensions (containerWidth x containerHeight)
-        // We want the visual frame to start at (0, 0), so center should be at (containerWidth/2, containerHeight/2)
+        // Center the canvas in the container
         let centerX = containerWidth / 2
         let centerY = containerHeight / 2
         drawingCanvas?.center = CGPoint(x: centerX, y: centerY)
-        // marginDrawingCanvas removed - using single unified canvas(x: centerX, y: centerY)
 
-        // Now apply the rotation transform - this rotates around the center we just set
-        drawingCanvas?.transform = CGAffineTransform(rotationAngle: rotationRadians)
-        // marginDrawingCanvas removed - using single unified canvas
-
-        print("🔄 [TRANSFORM]   Applied rotation transform to both canvases")
         print("🔄 [TRANSFORM]   Canvas bounds: \(canvasBounds)")
         print("🔄 [TRANSFORM]   Canvas center: (\(centerX), \(centerY))")
 
-        // Update margin canvas visibility based on margins enabled
-        // Margin canvas visibility: now handled in single canvas
-
+        // Update position and mask before rotation (in unrotated coordinate space)
+        updateCanvasPositionNew()
+        
+        // ✅ STEP 1: Apply rotation FIRST
+        //drawingCanvas?.transform = CGAffineTransform(rotationAngle: rotationRadians)
+        
+        // ✅ STEP 2: Reconfigure constraints AFTER rotation is applied
+        reconfigureCanvasConstraints()
+        
+        // ✅ STEP 3: Apply mask LAST, after everything else is stable
+        // This ensures the mask is applied to a view with correct, stable geometry
+        updateCanvasMask()
+        
         print("🔄 [TRANSFORM]   Final containerView.bounds: \(containerView.bounds)")
         print("🔄 [TRANSFORM]   pdfDrawingCanvas.frame: \(drawingCanvas?.frame ?? .zero)")
     }
 
     private func reconfigureCanvasConstraints(zoomLevel: CGFloat = 1.0) {
         guard let canvas = drawingCanvas else { return }
-
-        // Calculate base size (no zoom multiplication - that's SwiftUI's job)
-        let baseSize = canvasSize
-
-        print("🎯 [RECONFIG] Canvas constraints reconfigured")
-        print("🎯 [RECONFIG]   Base size (EXPANDED): \(baseSize)")
-        print("🎯 [RECONFIG]   Zoom level: \(String(format: "%.4f", zoomLevel))")
-
-        // Deactivate old constraints
-        [canvasWidthConstraint, canvasHeightConstraint].forEach { $0?.isActive = false }
-
-        // Remove from superview
-        canvas.removeFromSuperview()
-
-        // Re-add canvas
-        canvas.translatesAutoresizingMaskIntoConstraints = false
-        containerView.addSubview(canvas)
-
-        let width = canvas.widthAnchor.constraint(equalToConstant: baseSize.width)
-        let height = canvas.heightAnchor.constraint(equalToConstant: baseSize.height)
-
-        canvasWidthConstraint = width
-        canvasHeightConstraint = height
-
-        NSLayoutConstraint.activate([
-            canvas.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
-            canvas.topAnchor.constraint(equalTo: containerView.topAnchor),
-            width,
-            height
-        ])
-
-        canvas.backgroundColor = UIColor.blue.withAlphaComponent(0.2)
-        canvas.isOpaque = false
-        canvas.isUserInteractionEnabled = false
-        canvas.drawingPolicy = .anyInput
-        canvas.maximumZoomScale = 1.0
-        canvas.minimumZoomScale = 1.0
-        canvas.isScrollEnabled = false
-        canvas.clipsToBounds = true
-
-        containerView.setNeedsLayout()
-        containerView.layoutIfNeeded()
-
-        print("🎯 [RECONFIG]   Constraints created at EXPANDED SIZE ✅")
+        
+        print("🎯 [RECONFIG] Reconfiguring canvas constraints")
+        print("🎯 [RECONFIG]   Canvas size: \(canvasSize.width) x \(canvasSize.height)")
+        
+        // Remove all Auto Layout constraints
+        canvas.constraints.forEach { $0.isActive = false }
+        
+        // Use frame-based layout
+        canvas.translatesAutoresizingMaskIntoConstraints = true
+        
+        // Set frame to canvas size
+        canvas.frame = CGRect(
+            x: 0,
+            y: 0,
+            width: canvasSize.width,
+            height: canvasSize.height
+        )
+        
+        print("🎯 [RECONFIG]   Disabled Auto Layout")
+        print("🎯 [RECONFIG]   Set frame: width=\(canvasSize.width), height=\(canvasSize.height)")
+        print("🎯 [RECONFIG]   Frame synchronized ✅")
     }
+
+
     // MARK: - Drawing Persistence
 
     private func saveCurrentPageDrawings() {
@@ -1304,14 +1244,18 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
         let size = pdfManager?.effectiveSize(for: currentPageIndex)
             ?? CGSize(width: 612, height: 792)
         
+        // CRITICAL: When margins disabled, ALWAYS use full PDF size (scale 1.0)
+        if marginSettings.pdfScale == 1.0 {
+            let fullW = size.width                                   // ← Full size, not scaled
+            let fullH = size.height
+            let x = (canvasSize.width - fullW) / 2
+            let y = (canvasSize.height - fullH) / 2
+            return CGRect(x: x, y: y, width: fullW, height: fullH)
+        }
+        
+        // Margins ENABLED: use scaled size
         let scaledW = size.width * CGFloat(settings.pdfScale)
         let scaledH = size.height * CGFloat(settings.pdfScale)
-        
-        if !settings.isEnabled {
-            let x = (canvasSize.width - scaledW) / 2
-            let y = (canvasSize.height - scaledH) / 2
-            return CGRect(x: x, y: y, width: scaledW, height: scaledH)
-        }
         
         let (row, col) = settings.anchorPosition.gridPosition
         

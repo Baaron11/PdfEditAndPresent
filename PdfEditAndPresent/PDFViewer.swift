@@ -94,7 +94,7 @@ struct PDFPageBackground: View {
             let marginSettings = pdfManager.getMarginSettings(for: currentPageIndex)
 
             let image: UIImage?
-            if marginSettings.isEnabled {
+            if marginSettings.pdfScale < 1.0 {
                 image = renderPageWithMargins(page: page, marginSettings: marginSettings)
             } else {
                 image = renderPageNormal(page: page)

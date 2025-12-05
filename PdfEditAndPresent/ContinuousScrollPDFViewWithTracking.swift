@@ -228,9 +228,8 @@ struct ContinuousScrollPDFViewWithTracking: View {
     private func hashMarginSettings() -> Int {
         var hash = 0
         for (index, settings) in pdfManager.marginSettings.enumerated() {
-            let settingHash = (settings.isEnabled ? 1 : 0)
-            ^ settings.anchorPosition.hashValue
-            ^ Int(settings.pdfScale * 1000)
+            let settingHash = settings.anchorPosition.hashValue
+                ^ Int(settings.pdfScale * 1000)
             hash ^= (settingHash &+ index)
         }
         return hash
@@ -254,7 +253,7 @@ struct ContinuousScrollPDFViewWithTracking: View {
         guard let page = pdfManager.pdfDocument?.page(at: pageIndex) else { return }
         let settings = pdfManager.getMarginSettings(for: pageIndex)
 
-        let image: UIImage? = settings.isEnabled
+        let image: UIImage? = settings.pdfScale < 1.0
             ? renderPageWithMargins(page: page, marginSettings: settings)
             : renderPageNormal(page: page)
 

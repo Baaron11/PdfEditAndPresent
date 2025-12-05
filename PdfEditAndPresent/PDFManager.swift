@@ -786,7 +786,6 @@ extension PDFManager {
         saveMarginSettings()
         
         print("✅ Updated margin settings for page \(pageIndex + 1)")
-        print("   - Enabled: \(settings.isEnabled)")
         print("   - Anchor: \(settings.anchorPosition.rawValue)")
         print("   - Scale: \(Int(settings.pdfScale * 100))%")
     }
@@ -805,8 +804,6 @@ extension PDFManager {
         saveMarginSettings()
         
         print("✅ Applied margin settings to all \(pageCount) pages")
-        print("   - Enabled: \(settings.isEnabled)")
-        print("   - Anchor: \(settings.anchorPosition.rawValue)")
         print("   - Scale: \(Int(settings.pdfScale * 100))%")
     }
     
@@ -819,10 +816,10 @@ extension PDFManager {
     }
     
     // MARK: - Check if Enabled
-    var hasMarginEnabled: Bool {
-        getMarginSettings(for: currentPageIndex).isEnabled
-    }
-    
+//    var hasMarginEnabled: Bool {
+//        getMarginSettings(for: currentPageIndex).isEnabled
+//    }
+//    
     var currentPageMarginSettings: MarginSettings {
         getMarginSettings(for: currentPageIndex)
     }
@@ -915,7 +912,6 @@ extension PDFManager {
         saveMarginSettings()
         
         print("✅ Updated margin settings for page \(pageIndex + 1)")
-        print("   - Enabled: \(settings.isEnabled)")
         print("   - Anchor: \(settings.anchorPosition.rawValue)")
         print("   - Scale: \(Int(settings.pdfScale * 100))%")
     }
@@ -935,7 +931,6 @@ extension PDFManager {
         saveMarginSettings()
         
         print("✅ Applied margin settings to all \(pageCount) pages")
-        print("   - Enabled: \(settings.isEnabled)")
         print("   - Anchor: \(settings.anchorPosition.rawValue)")
         print("   - Scale: \(Int(settings.pdfScale * 100))%")
     }

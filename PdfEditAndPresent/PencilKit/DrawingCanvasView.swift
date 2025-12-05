@@ -75,11 +75,7 @@ struct DrawingCanvasRepresentable: UIViewRepresentable {
             canvasView.drawing = drawing
         }
 
-        // Canvas undo/redo closures (read the canvas' own undo manager)
-        viewModel.canvasUndoHandler = { [weak canvasView] in canvasView?.undoManager?.undo() }
-        viewModel.canvasRedoHandler = { [weak canvasView] in canvasView?.undoManager?.redo() }
-
-        // Attach VM to this canvas & picker (wires ruler + lasso controllers)
+        // Attach VM to this canvas & picker (wires ruler, lasso controllers, and undo observation)
         viewModel.attachCanvas(canvasView: canvasView, toolPicker: toolPicker)
 
         return canvasView

@@ -132,6 +132,9 @@ struct PDFEditorScreenRefactored: View {
     @StateObject private var drawingVM = DrawingViewModel()
     @State private var drawingCanvasAdapter: DrawingCanvasAPI?
 
+    // Brush editor modal
+    @State private var showBrushEditor = false
+
     // Margin settings for canvas
     @State private var marginSettings: MarginSettings = MarginSettings()
 
@@ -215,6 +218,9 @@ struct PDFEditorScreenRefactored: View {
         }
         .sheet(isPresented: $showMarginSettings) {
             MarginSettingsSheet(pdfManager: pdfManager)
+        }
+        .sheet(isPresented: $showBrushEditor) {
+            BrushEditorView(brushManager: brushManager)
         }
         .alert("Save Changes?", isPresented: $showSavePrompt, actions: {
             Button("Save", action: {
@@ -424,8 +430,18 @@ struct PDFEditorScreenRefactored: View {
                     }
             }
 
-            Button(action: { showSettings = true }) {
-                Image(systemName: "gear")
+            Menu {
+                Button(action: { showBrushEditor = true }) {
+                    Label("Edit Brushes", systemImage: "pencil.tip")
+                }
+
+                Divider()
+
+                Button(action: { showSettings = true }) {
+                    Label("PDF Settings", systemImage: "doc.badge.gearshape")
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
                     .font(.system(size: 14, weight: .semibold))
                     .frame(width: ToolbarMetrics.button, height: ToolbarMetrics.button)
                     .background(Color.gray.opacity(0.1))

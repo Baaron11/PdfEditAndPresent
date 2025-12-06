@@ -488,40 +488,67 @@ final class UnifiedBoardCanvasController: UIViewController {
         let displayTransform = transformer.displayTransform
         paperKitView?.transform = displayTransform
 
-        // Apply rotation transform to canvas views
+        // Calculate rotation
         let rotationRadians = CGFloat(currentPageRotation) * .pi / 180.0
+        let isRotated90or270 = (currentPageRotation == 90 || currentPageRotation == 270)
 
         print("🔄 [TRANSFORM]   rotationRadians: \(rotationRadians)")
-
-        // Determine container size based on rotation
-        let isRotated90or270 = (currentPageRotation == 90 || currentPageRotation == 270)
-        let containerWidth = isRotated90or270 ? canvasSize.height : canvasSize.width
-        let containerHeight = isRotated90or270 ? canvasSize.width : canvasSize.height
-
         print("🔄 [TRANSFORM]   isRotated90or270: \(isRotated90or270)")
-        print("🔄 [TRANSFORM]   containerSize: \(containerWidth) x \(containerHeight)")
+
+        // After rotation, frame dimensions swap for 90°/270°
+        // This is the visual size the canvas will occupy after rotation
+        let frameWidth: CGFloat
+        let frameHeight: CGFloat
+
+        if isRotated90or270 {
+            frameWidth = canvasSize.height   // swapped
+            frameHeight = canvasSize.width   // swapped
+        } else {
+            frameWidth = canvasSize.width
+            frameHeight = canvasSize.height
+        }
+
+        print("🔄 [TRANSFORM]   frameSize after rotation: \(frameWidth) x \(frameHeight)")
 
         // Update container bounds to match rotated page dimensions
-        containerView.bounds = CGRect(x: 0, y: 0, width: containerWidth, height: containerHeight)
+        containerView.bounds = CGRect(x: 0, y: 0, width: frameWidth, height: frameHeight)
 
-        // Apply rotation transform directly - no centering/translation offsets
-        // Rotation happens naturally around top-left corner
-        pdfDrawingCanvas?.transform = CGAffineTransform(rotationAngle: rotationRadians)
-        marginDrawingCanvas?.transform = CGAffineTransform(rotationAngle: rotationRadians)
+        // IMPORTANT: Setting frame AFTER rotation doesn't work because frame is recalculated
+        // based on center and transformed bounds. Instead, we must:
+        // 1. Reset transform to identity
+        // 2. Set bounds (logical drawing size, unchanged by rotation)
+        // 3. Set center (calculated for desired frame position AFTER rotation)
+        // 4. Apply rotation transform
 
-        // Set canvas frames at (0, 0) with canvas size - no offsets
-        let canvasFrame = CGRect(x: 0, y: 0, width: canvasSize.width, height: canvasSize.height)
-        pdfDrawingCanvas?.frame = canvasFrame
-        marginDrawingCanvas?.frame = canvasFrame
+        // Reset transforms first
+        pdfDrawingCanvas?.transform = .identity
+        marginDrawingCanvas?.transform = .identity
+
+        // Set bounds to original canvas size (the logical drawing area)
+        pdfDrawingCanvas?.bounds = CGRect(origin: .zero, size: canvasSize)
+        marginDrawingCanvas?.bounds = CGRect(origin: .zero, size: canvasSize)
+
+        // Calculate center for frame at origin (0, 0) after rotation
+        // Formula: For frame.origin = (0, 0), center = (frameWidth/2, frameHeight/2)
+        let correctCenter = CGPoint(x: frameWidth / 2, y: frameHeight / 2)
+        pdfDrawingCanvas?.center = correctCenter
+        marginDrawingCanvas?.center = correctCenter
+
+        print("🔄 [TRANSFORM]   bounds: \(canvasSize)")
+        print("🔄 [TRANSFORM]   center: \(correctCenter)")
+
+        // Apply rotation transform LAST
+        let rotationTransform = CGAffineTransform(rotationAngle: rotationRadians)
+        pdfDrawingCanvas?.transform = rotationTransform
+        marginDrawingCanvas?.transform = rotationTransform
 
         print("🔄 [TRANSFORM]   Applied rotation transform to both canvases")
-        print("🔄 [TRANSFORM]   Canvas frame: \(canvasFrame)")
+        print("🔄 [TRANSFORM]   pdfDrawingCanvas.frame: \(pdfDrawingCanvas?.frame ?? .zero)")
 
         // Update margin canvas visibility based on margins enabled
         marginDrawingCanvas?.isHidden = !marginSettings.isEnabled
 
         print("🔄 [TRANSFORM]   Final containerView.bounds: \(containerView.bounds)")
-        print("🔄 [TRANSFORM]   pdfDrawingCanvas.frame: \(pdfDrawingCanvas?.frame ?? .zero)")
     }
 
     private func reconfigureCanvasConstraints() {

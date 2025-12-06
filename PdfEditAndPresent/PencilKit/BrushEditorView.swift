@@ -5,7 +5,6 @@
 //  Created by Brandon Ramirez on 10/18/25.
 //
 
-
 // BrushEditorView.swift
 // Location: Shared/Views/Drawing/BrushEditorView.swift
 
@@ -74,7 +73,8 @@ struct BrushEditorView: View {
                         type: .pen,
                         color: CodableColor(.black),
                         width: 2,
-                        order: brushManager.brushes.count
+                        order: brushManager.brushes.count,
+                        showName: true
                     ),
                     isNew: true
                 ) { newBrush in
@@ -124,6 +124,15 @@ struct BrushRowView: View {
                     Text("Width: \(Int(brush.width))")
                         .font(.caption)
                         .foregroundColor(.secondary)
+                    
+                    // ✅ NEW: Show name indicator
+                    if !brush.showName {
+                        Text("•")
+                            .foregroundColor(.secondary)
+                        Text("Name Hidden")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                    }
                 }
             }
             
@@ -174,6 +183,9 @@ struct BrushEditSheet: View {
                             .tag(type)
                         }
                     }
+                    
+                    // ✅ NEW: Show name toggle
+                    Toggle("Show Name in Toolbar", isOn: $brush.showName)
                 }
                 
                 if brush.type != .eraser {
@@ -228,8 +240,11 @@ struct BrushEditSheet: View {
                                 .font(.system(size: 50))
                                 .foregroundColor(brush.type == .eraser ? .pink : selectedColor)
                             
-                            Text(brush.name)
-                                .font(.headline)
+                            // ✅ NEW: Show name preview based on toggle
+                            if brush.showName {
+                                Text(brush.name)
+                                    .font(.headline)
+                            }
                             
                             Text("\(brush.type.rawValue) • \(Int(brush.width))pt")
                                 .font(.caption)

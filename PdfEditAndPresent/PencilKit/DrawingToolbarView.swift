@@ -2,8 +2,11 @@ import SwiftUI
 import PencilKit
 
 struct DrawingToolbarView: View {
+    // Brush manager reference
+    @ObservedObject var brushManager: BrushManager
+    
     // Simple state for UI controls
-    @State private var selectedInk: PKInkingTool.InkType = .pen
+    @State private var selectedBrushId: UUID?
     @State private var selectedColor: Color = .black
     @State private var lineWidth: CGFloat = 3
 
@@ -16,54 +19,74 @@ struct DrawingToolbarView: View {
 
     var body: some View {
         VStack(spacing: 8) {
+            // Brushes row
             HStack(spacing: 8) {
-                Button {
-                    selectedInk = .pen
-                    setInk(.pen, uiColor, lineWidth)
-                } label: {
-                    Image(systemName: "pencil.tip")
-                        .padding(6)
-                        .background(selectedInk == .pen ? Color.blue.opacity(0.2) : Color.clear)
-                        .cornerRadius(6)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        // Render each brush from manager
+                        ForEach(brushManager.brushes) { brush in
+                            BrushButton(
+                                brush: brush,
+                                isSelected: selectedBrushId == brush.id,
+                                action: {
+                                    selectedBrushId = brush.id
+                                    selectedColor = brush.color.color
+                                    lineWidth = brush.width
+                                    
+                                    // Apply the selected brush
+                                    let tool = brush.createTool()
+                                    if let inkTool = tool as? PKInkingTool {
+                                        setInk(inkTool.inkType, brush.color.uiColor, brush.width)
+                                    }
+                                }
+                            )
+                        }
+                    }
+                    .padding(.horizontal, 8)
                 }
-
-                Button {
-                    selectedInk = .marker
-                    setInk(.marker, uiColor, max(lineWidth, 6))
-                } label: {
-                    Image(systemName: "highlighter")
-                        .padding(6)
-                        .background(selectedInk == .marker ? Color.blue.opacity(0.2) : Color.clear)
-                        .cornerRadius(6)
-                }
-
+                
+                Divider().frame(height: 44)
+                
+                // Tools
                 Button { setEraser() } label: {
                     Image(systemName: "eraser")
-                        .padding(6)
+                        .font(.system(size: 16, weight: .semibold))
+                        .padding(8)
+                        .foregroundColor(.primary)
                 }
 
                 Button { beginLasso() } label: {
                     Image(systemName: "lasso")
-                        .padding(6)
+                        .font(.system(size: 16, weight: .semibold))
+                        .padding(8)
+                        .foregroundColor(.primary)
                 }
 
                 Divider().frame(height: 22)
 
                 Button { undo() } label: {
                     Image(systemName: "arrow.uturn.backward")
-                        .padding(6)
+                        .font(.system(size: 16, weight: .semibold))
+                        .padding(8)
+                        .foregroundColor(.primary)
                 }
 
                 Button { redo() } label: {
                     Image(systemName: "arrow.uturn.forward")
-                        .padding(6)
+                        .font(.system(size: 16, weight: .semibold))
+                        .padding(8)
+                        .foregroundColor(.primary)
                 }
             }
 
+            // Color and width controls
             HStack(spacing: 10) {
                 ColorPicker("", selection: $selectedColor)
                     .labelsHidden()
                     .frame(width: 36, height: 36)
+                    .onChange(of: selectedColor) { newColor in
+                        setInk(selectedBrushType, UIColor(newColor), lineWidth)
+                    }
 
                 Slider(value: $lineWidth, in: 1...20, step: 1) {
                     Text("Width")
@@ -73,9 +96,12 @@ struct DrawingToolbarView: View {
                     Text("20").font(.caption)
                 }
                 .frame(width: 180)
+                .onChange(of: lineWidth) { newWidth in
+                    setInk(selectedBrushType, UIColor(selectedColor), newWidth)
+                }
 
                 Button("Apply") {
-                    setInk(selectedInk, uiColor, lineWidth)
+                    setInk(selectedBrushType, UIColor(selectedColor), lineWidth)
                 }
                 .buttonStyle(.borderedProminent)
             }
@@ -85,7 +111,81 @@ struct DrawingToolbarView: View {
         .background(.ultraThinMaterial)
         .cornerRadius(12)
         .shadow(radius: 10)
+        .onAppear {
+            // Select first brush by default
+            selectedBrushId = brushManager.brushes.first?.id
+            if let firstBrush = brushManager.brushes.first {
+                selectedColor = firstBrush.color.color
+                lineWidth = firstBrush.width
+            }
+        }
     }
-
-    private var uiColor: UIColor { UIColor(selectedColor) }
+    
+    // Get the currently selected brush's ink type
+    private var selectedBrushType: PKInkingTool.InkType {
+        if let selectedId = selectedBrushId,
+           let brush = brushManager.brushes.first(where: { $0.id == selectedId }) {
+            return brush.type.inkType
+        }
+        return .pen
+    }
 }
+
+// MARK: - Brush Button (respects showName)
+struct BrushButton: View {
+    let brush: BrushConfiguration
+    let isSelected: Bool
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 2) {
+                Image(systemName: brush.type.iconName)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(brush.color.color)
+                
+                // ✅ Conditionally show name based on brush.showName
+                if brush.showName {
+                    Text(brush.name)
+                        .font(.caption2)
+                        .lineLimit(1)
+                        .foregroundColor(.primary)
+                } else {
+                    // No empty space when name is hidden
+                    EmptyView()
+                }
+            }
+            .frame(height: brush.showName ? 44 : 28)
+            .frame(minWidth: 44)
+            .background(
+                isSelected
+                    ? Color.blue.opacity(0.2)
+                    : Color.gray.opacity(0.1)
+            )
+            .cornerRadius(6)
+            .overlay(
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(
+                        isSelected ? Color.blue : Color.clear,
+                        lineWidth: 2
+                    )
+            )
+        }
+    }
+}
+
+#if DEBUG
+struct DrawingToolbarView_Previews: PreviewProvider {
+    static var previews: some View {
+        DrawingToolbarView(
+            brushManager: BrushManager(),
+            setInk: { _, _, _ in },
+            setEraser: { },
+            beginLasso: { },
+            undo: { },
+            redo: { }
+        )
+        .preferredColorScheme(.light)
+    }
+}
+#endif

@@ -702,28 +702,30 @@ final class UnifiedBoardCanvasController: UIViewController {
     // MARK: - Gesture Routing
 
     private func updateGestureRouting() {
-        switch canvasMode {
-        case .drawing:
-            enableDrawing(true)
-            paperKitView?.isUserInteractionEnabled = false
-            // Keep interceptor enabled to observe and flip to select
-            modeInterceptor.isUserInteractionEnabled = true
-            print("🖊️ Drawing mode active — PKCanvasViews enabled")
-            print("🎯 pdfCanvas isUserInteractionEnabled=\(pdfDrawingCanvas?.isUserInteractionEnabled ?? false)")
+            switch canvasMode {
+            case .drawing:
+                enableDrawing(true)
+                paperKitView?.isUserInteractionEnabled = false
+                // ✅ DISABLE interceptor during drawing so touches reach canvases below
+                // The interceptor only needs to be active to detect PaperKit interactions in select/idle modes
+                modeInterceptor.isUserInteractionEnabled = false
+                print("🖊️ Drawing mode active — PKCanvasViews enabled")
+                print("🎯 pdfCanvas isUserInteractionEnabled=\(pdfDrawingCanvas?.isUserInteractionEnabled ?? false)")
 
-        case .selecting:
-            enableDrawing(false)
-            paperKitView?.isUserInteractionEnabled = true
-            modeInterceptor.isUserInteractionEnabled = true
-            print("Select mode: PaperKit enabled")
+            case .selecting:
+                enableDrawing(false)
+                paperKitView?.isUserInteractionEnabled = true
+                // ✅ ENABLE interceptor during selecting to detect PaperKit interactions
+                modeInterceptor.isUserInteractionEnabled = true
+                print("Select mode: PaperKit enabled")
 
-        case .idle:
-            enableDrawing(false)
-            paperKitView?.isUserInteractionEnabled = false
-            modeInterceptor.isUserInteractionEnabled = false
-            print("Idle mode: All disabled")
+            case .idle:
+                enableDrawing(false)
+                paperKitView?.isUserInteractionEnabled = false
+                modeInterceptor.isUserInteractionEnabled = false
+                print("Idle mode: All disabled")
+            }
         }
-    }
 
     // MARK: - PaperKit Interaction Auto-Switch
 

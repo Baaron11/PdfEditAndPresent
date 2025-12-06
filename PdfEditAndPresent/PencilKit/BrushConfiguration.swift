@@ -39,14 +39,16 @@ struct BrushConfiguration: Identifiable, Codable, Equatable {
     var color: CodableColor
     var width: CGFloat
     var order: Int
+    var showName: Bool = true  // ✅ NEW: Show name in UI
     
-    init(id: UUID = UUID(), name: String, type: BrushType, color: CodableColor, width: CGFloat, order: Int) {
+    init(id: UUID = UUID(), name: String, type: BrushType, color: CodableColor, width: CGFloat, order: Int, showName: Bool = true) {
         self.id = id
         self.name = name
         self.type = type
         self.color = color
         self.width = width
         self.order = order
+        self.showName = showName
     }
     
     // Create PKInkingTool from this configuration
@@ -70,35 +72,40 @@ struct BrushConfiguration: Identifiable, Codable, Equatable {
             type: .pen,
             color: CodableColor(.black),
             width: 2,
-            order: 0
+            order: 0,
+            showName: true
         ),
         BrushConfiguration(
             name: "Red Pen",
             type: .pen,
             color: CodableColor(.red),
             width: 2,
-            order: 1
+            order: 1,
+            showName: true
         ),
         BrushConfiguration(
             name: "Black Marker",
             type: .marker,
             color: CodableColor(.black),
             width: 5,
-            order: 2
+            order: 2,
+            showName: true
         ),
         BrushConfiguration(
             name: "Yellow Highlighter",
             type: .marker,
             color: CodableColor(UIColor.yellow.withAlphaComponent(0.5)),
             width: 15,
-            order: 3
+            order: 3,
+            showName: true
         ),
         BrushConfiguration(
             name: "Eraser",
             type: .eraser,
             color: CodableColor(.clear),
             width: 10,
-            order: 4
+            order: 4,
+            showName: true
         )
     ]
 }

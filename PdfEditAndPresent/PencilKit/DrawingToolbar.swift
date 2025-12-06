@@ -7,9 +7,7 @@ struct DrawingToolbar: View {
     let onClear: () -> Void
     var onToolModeChanged: ((DrawingToolMode) -> Void)?
 
-    @State private var showBrushEditor = false
     @State private var isCursorSelected = false
-    @AppStorage("showBrushNames") private var showBrushNames: Bool = true
 
     enum DrawingToolMode {
         case cursorPan
@@ -26,7 +24,7 @@ struct DrawingToolbar: View {
                     iconName: "pointer.arrow",
                     label: "Select",
                     isSelected: isCursorSelected,
-                    showNames: showBrushNames,
+                    showNames: true,
                     action: {
                         isCursorSelected = true
                         selectedBrush = nil
@@ -43,7 +41,6 @@ struct DrawingToolbar: View {
                             BrushButton(
                                 brush: brush,
                                 isSelected: selectedBrush?.id == brush.id,
-                                showBrushNames: showBrushNames,
                                 action: {
                                     selectedBrush = brush
                                     isCursorSelected = false
@@ -57,17 +54,6 @@ struct DrawingToolbar: View {
                 }
 
                 Spacer()
-
-                // ===== RULER =====
-                ToolButton(
-                    iconName: drawingViewModel.isRulerActive ? "ruler.fill" : "ruler",
-                    label: "Ruler",
-                    isSelected: drawingViewModel.isRulerActive,
-                    showNames: showBrushNames,
-                    action: {
-                        drawingViewModel.toggleRuler()
-                    }
-                )
 
                 // ===== LASSO =====
                 Menu {
@@ -124,20 +110,10 @@ struct DrawingToolbar: View {
                         iconName: drawingViewModel.isLassoActive ? "lasso.and.sparkles" : "lasso",
                         label: "Lasso",
                         isSelected: drawingViewModel.isLassoActive,
-                        showNames: showBrushNames,
+                        showNames: true,
                         action: {}  // Menu handles the action
                     )
                 }
-
-                // ===== SETTINGS/EDIT BRUSHES =====
-                ToolButton(
-                    iconName: "slider.horizontal.3",
-                    label: "Settings",
-                    isSelected: false,
-                    showNames: showBrushNames,
-                    action: { showBrushEditor = true },
-                    accentColor: .blue
-                )
 
                 Divider().frame(height: 30)
 
@@ -146,7 +122,7 @@ struct DrawingToolbar: View {
                     iconName: "arrow.uturn.backward",
                     label: "Undo",
                     isSelected: false,
-                    showNames: showBrushNames,
+                    showNames: true,
                     action: { drawingViewModel.undo() },
                     isDisabled: !drawingViewModel.canUndo
                 )
@@ -155,7 +131,7 @@ struct DrawingToolbar: View {
                     iconName: "arrow.uturn.forward",
                     label: "Redo",
                     isSelected: false,
-                    showNames: showBrushNames,
+                    showNames: true,
                     action: { drawingViewModel.redo() },
                     isDisabled: !drawingViewModel.canRedo
                 )
@@ -167,7 +143,7 @@ struct DrawingToolbar: View {
                     iconName: "trash",
                     label: "Clear",
                     isSelected: false,
-                    showNames: showBrushNames,
+                    showNames: true,
                     action: onClear,
                     accentColor: .red
                 )
@@ -181,12 +157,6 @@ struct DrawingToolbar: View {
         .onAppear {
             isCursorSelected = true
             onToolModeChanged?(.cursorPan)
-        }
-        .sheet(isPresented: $showBrushEditor) {
-            BrushEditorView(
-                brushManager: brushManager
-                //showBrushNames: $showBrushNames
-            )
         }
     }
 }
@@ -243,50 +213,49 @@ struct ToolButton: View {
     }
 }
 
-//// MARK: - Brush Button (specialized for brushes)
-//struct BrushButton: View {
-//    let brush: BrushConfiguration
-//    let isSelected: Bool
-//    let showBrushNames: Bool
-//    let action: () -> Void
-//
-//    var body: some View {
-//        Button(action: action) {
-//            if showBrushNames {
-//                // When showing names: stack icon + text
-//                VStack(spacing: 4) {
-//                    Image(systemName: brush.type.iconName)
-//                        .font(.system(size: 20))
-//                        .foregroundColor(isSelected ? .white : brush.color.color)
-//                        .frame(width: 44, height: 44)
-//                        .background(
-//                            Circle()
-//                                .fill(isSelected ? brush.color.color : Color.gray.opacity(0.2))
-//                        )
-//
-//                    Text(brush.name)
-//                        .font(.system(size: 10))
-//                        .foregroundColor(.primary)
-//                        .lineLimit(1)
-//                        .frame(maxWidth: 50)
-//                        .frame(height: 12)
-//                }
-//            } else {
-//                // When hiding names: center icon vertically
-//                VStack {
-//                    Spacer()
-//                    Image(systemName: brush.type.iconName)
-//                        .font(.system(size: 20))
-//                        .foregroundColor(isSelected ? .white : brush.color.color)
-//                        .frame(width: 44, height: 44)
-//                        .background(
-//                            Circle()
-//                                .fill(isSelected ? brush.color.color : Color.gray.opacity(0.2))
-//                        )
-//                    Spacer()
-//                }
-//                .frame(height: 56)  // Same total height as when names are shown
-//            }
-//        }
-//    }
-//}
+// MARK: - Brush Button (uses per-brush showName setting)
+struct BrushButton: View {
+    let brush: BrushConfiguration
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            if brush.showName {
+                // When showing name: stack icon + text
+                VStack(spacing: 4) {
+                    Image(systemName: brush.type.iconName)
+                        .font(.system(size: 20))
+                        .foregroundColor(isSelected ? .white : brush.color.color)
+                        .frame(width: 44, height: 44)
+                        .background(
+                            Circle()
+                                .fill(isSelected ? brush.color.color : Color.gray.opacity(0.2))
+                        )
+
+                    Text(brush.name)
+                        .font(.system(size: 10))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+                        .frame(maxWidth: 50)
+                        .frame(height: 12)
+                }
+            } else {
+                // When hiding name: center icon vertically
+                VStack {
+                    Spacer()
+                    Image(systemName: brush.type.iconName)
+                        .font(.system(size: 20))
+                        .foregroundColor(isSelected ? .white : brush.color.color)
+                        .frame(width: 44, height: 44)
+                        .background(
+                            Circle()
+                                .fill(isSelected ? brush.color.color : Color.gray.opacity(0.2))
+                        )
+                    Spacer()
+                }
+                .frame(height: 56)  // Same total height as when names are shown
+            }
+        }
+    }
+}

@@ -21,6 +21,7 @@ struct UnifiedBoardCanvasView: UIViewControllerRepresentable {
     var onDrawingChanged: ((Int, PKDrawing?, PKDrawing?) -> Void)?
     var onToolAPIReady: ((UnifiedBoardToolAPI) -> Void)?
     var onZoomChanged: ((CGFloat) -> Void)?
+    var onUndoRedoStateChanged: ((Bool, Bool) -> Void)?
 
     func makeUIViewController(context: Context) -> UnifiedBoardCanvasController {
 //        print("[SWIFTUI] makeUIViewController() - creating controller")
@@ -43,6 +44,17 @@ struct UnifiedBoardCanvasView: UIViewControllerRepresentable {
             controller.setupPaperKit(markup: markup)
         }
         controller.setupPencilKit()
+
+        // Wire up undo/redo state callback
+        context.coordinator.onUndoRedoStateChanged = onUndoRedoStateChanged
+        controller.onUndoRedoStateChanged = { [weak controller] canUndo, canRedo in
+            guard controller != nil else { return }
+            DispatchQueue.main.async {
+                context.coordinator.canUndo = canUndo
+                context.coordinator.canRedo = canRedo
+                context.coordinator.onUndoRedoStateChanged?(canUndo, canRedo)
+            }
+        }
 
         // Store callback in coordinator
         //print("[CANVAS-VIEW] Storing onZoomChanged callback in coordinator")
@@ -137,6 +149,7 @@ struct UnifiedBoardCanvasView: UIViewControllerRepresentable {
            print("     Are they equal? \(uiViewController.marginSettings == marginSettings)")
         
         context.coordinator.onZoomChanged = onZoomChanged
+        context.coordinator.onUndoRedoStateChanged = onUndoRedoStateChanged
 
         if uiViewController.canvasMode != canvasMode {
             uiViewController.setCanvasMode(canvasMode)
@@ -191,6 +204,11 @@ struct UnifiedBoardCanvasView: UIViewControllerRepresentable {
         var lastRotation: Int
         var lastZoomLevel: CGFloat = 1.0
         var onZoomChanged: ((CGFloat) -> Void)?
+
+        // Undo/Redo state
+        var canUndo = false
+        var canRedo = false
+        var onUndoRedoStateChanged: ((Bool, Bool) -> Void)?
 
         init(currentPageIndex: Int, lastRotation: Int) {
             self.currentPageIndex = currentPageIndex

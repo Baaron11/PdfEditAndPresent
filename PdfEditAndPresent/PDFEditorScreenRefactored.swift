@@ -132,6 +132,10 @@ struct PDFEditorScreenRefactored: View {
     @StateObject private var drawingVM = DrawingViewModel()
     @State private var drawingCanvasAdapter: DrawingCanvasAPI?
 
+    // Undo/Redo state (from canvas controller)
+    @State private var canUndo = false
+    @State private var canRedo = false
+
     // Margin settings for canvas
     @State private var marginSettings: MarginSettings = MarginSettings()
 
@@ -1000,7 +1004,11 @@ struct PDFEditorScreenRefactored: View {
                         self.drawingCanvasAdapter = adapter
                         drawingVM.attachCanvas(adapter)
                     },
-                    onZoomChanged: { newZoom in  // ✅ MOVE TO END
+                    onUndoRedoStateChanged: { undoAvailable, redoAvailable in
+                        self.canUndo = undoAvailable
+                        self.canRedo = redoAvailable
+                    },
+                    onZoomChanged: { newZoom in
                         print("🔍 [SYNC-CONTINUOUS] Canvas pinch zoom → updating pdfManager to \(String(format: "%.2f", newZoom))x")
                         pdfManager.setZoom(newZoom)
                         initialZoomForGesture = newZoom
@@ -1027,7 +1035,9 @@ struct PDFEditorScreenRefactored: View {
                         case .drawing:
                             canvasMode = .drawing
                         }
-                    }
+                    },
+                    canUndo: canUndo,
+                    canRedo: canRedo
                 )
                 //.padding(.bottom, 12)
                 .background(.ultraThinMaterial)
@@ -1085,7 +1095,9 @@ struct PDFEditorScreenRefactored: View {
                         case .drawing:
                             canvasMode = .drawing
                         }
-                    }
+                    },
+                    canUndo: canUndo,
+                    canRedo: canRedo
                 )
                 .background(.ultraThinMaterial)
                 .shadow(radius: 3)
@@ -1163,6 +1175,10 @@ struct PDFEditorScreenRefactored: View {
                                 print("🔍 [SYNC] Canvas pinch zoom → updating pdfManager to \(String(format: "%.2f", newZoom))x")
                                 pdfManager.setZoom(newZoom)
                                 initialZoomForGesture = newZoom
+                            },
+                            onUndoRedoStateChanged: { undoAvailable, redoAvailable in
+                                self.canUndo = undoAvailable
+                                self.canRedo = redoAvailable
                             }
                         )
                         .frame(width: effectiveSize.width, height: effectiveSize.height)

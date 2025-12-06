@@ -7,6 +7,10 @@ struct DrawingToolbar: View {
     let onClear: () -> Void
     var onToolModeChanged: ((DrawingToolMode) -> Void)?
 
+    // Undo/Redo state from canvas controller
+    var canUndo: Bool = false
+    var canRedo: Bool = false
+
     @State private var showBrushEditor = false
     @State private var isCursorSelected = false
     @AppStorage("showBrushNames") private var showBrushNames: Bool = true
@@ -148,7 +152,7 @@ struct DrawingToolbar: View {
                     isSelected: false,
                     showNames: showBrushNames,
                     action: { drawingViewModel.undo() },
-                    isDisabled: !drawingViewModel.canUndo
+                    isDisabled: !canUndo
                 )
 
                 ToolButton(
@@ -157,7 +161,7 @@ struct DrawingToolbar: View {
                     isSelected: false,
                     showNames: showBrushNames,
                     action: { drawingViewModel.redo() },
-                    isDisabled: !drawingViewModel.canRedo
+                    isDisabled: !canRedo
                 )
 
                 Divider().frame(height: 30)

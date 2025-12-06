@@ -70,6 +70,12 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
     var onCanvasModeChanged: ((CanvasMode) -> Void)?
     var onZoomChanged: ((CGFloat) -> Void)?
 
+    // MARK: - Undo/Redo State
+    @Published var canUndo = false
+    @Published var canRedo = false
+    var onUndoRedoStateChanged: ((Bool, Bool) -> Void)?
+    private var undoObservers: [NSObjectProtocol] = []
+
     // Alignment state
     private(set) var currentAlignment: PDFAlignment = .center
 
@@ -179,6 +185,7 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
 
     deinit {
         for o in interactionObservers { NotificationCenter.default.removeObserver(o) }
+        undoObservers.forEach { NotificationCenter.default.removeObserver($0) }
     }
 
     public func setPDFView(_ pdfView: PDFView) {
@@ -565,6 +572,9 @@ public final class UnifiedBoardCanvasController: UIViewController, DrawingCanvas
         print("🎛️ [LIFECYCLE]   About to call pinCanvas() for drawingCanvas")
         pinCanvas(canvas, to: containerView)
         canvas.delegate = self
+
+        // Observe undo manager for undo/redo state tracking
+        observeUndoManager(canvas.undoManager)
 
         // Shared tool picker
         let toolPicker = PKToolPicker()
@@ -2095,10 +2105,62 @@ extension UnifiedBoardCanvasController {
 
     func undo() {
         activeCanvas?.undoManager?.undo()
+        updateUndoRedoState()
     }
 
     func redo() {
         activeCanvas?.undoManager?.redo()
+        updateUndoRedoState()
+    }
+
+    // MARK: - Undo/Redo Observation
+    private func observeUndoManager(_ manager: UndoManager?) {
+        // Remove old observers
+        undoObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        undoObservers.removeAll()
+
+        guard let manager = manager else {
+            canUndo = false
+            canRedo = false
+            return
+        }
+
+        // Listen for undo manager changes
+        let notifications: [Notification.Name] = [
+            .NSUndoManagerDidUndoChange,
+            .NSUndoManagerDidRedoChange,
+            .NSUndoManagerCheckpoint
+        ]
+
+        for notificationName in notifications {
+            let observer = NotificationCenter.default.addObserver(
+                forName: notificationName,
+                object: manager,
+                queue: .main
+            ) { [weak self] _ in
+                self?.updateUndoRedoState()
+            }
+            undoObservers.append(observer)
+        }
+
+        updateUndoRedoState()
+    }
+
+    private func updateUndoRedoState() {
+        guard let manager = drawingCanvas?.undoManager else {
+            canUndo = false
+            canRedo = false
+            return
+        }
+
+        let newCanUndo = manager.canUndo
+        let newCanRedo = manager.canRedo
+
+        if canUndo != newCanUndo || canRedo != newCanRedo {
+            canUndo = newCanUndo
+            canRedo = newCanRedo
+            onUndoRedoStateChanged?(canUndo, canRedo)
+        }
     }
 }
 

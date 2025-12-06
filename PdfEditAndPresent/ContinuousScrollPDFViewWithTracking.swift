@@ -15,6 +15,7 @@ struct ContinuousScrollPDFViewWithTracking: View {
     var onPaperKitItemAdded: (() -> Void)?
     var onDrawingChanged: ((Int, PKDrawing?, PKDrawing?) -> Void)?
     var onToolAPIReady: ((UnifiedBoardToolAPI) -> Void)?
+    var onUndoRedoStateChanged: ((Bool, Bool) -> Void)?
 
     @State private var pageImages: [Int: UIImage] = [:]
     @State private var pageSizes: [Int: CGSize] = [:]
@@ -205,7 +206,8 @@ struct ContinuousScrollPDFViewWithTracking: View {
                         onPaperKitItemAdded: onPaperKitItemAdded,
                         onDrawingChanged: onDrawingChanged,
                         onToolAPIReady: onToolAPIReady,
-                        onZoomChanged: onZoomChanged
+                        onZoomChanged: onZoomChanged,
+                        onUndoRedoStateChanged: onUndoRedoStateChanged
                     )
             .id("canvas-\(pageIndex)")
             .allowsHitTesting(canvasMode == .drawing || canvasMode == .selecting)

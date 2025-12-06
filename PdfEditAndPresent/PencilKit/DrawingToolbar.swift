@@ -8,6 +8,7 @@ struct DrawingToolbar: View {
     var onToolModeChanged: ((DrawingToolMode) -> Void)?
 
     @State private var isCursorSelected = false
+    @State private var showBrushEditor = false
 
     enum DrawingToolMode {
         case cursorPan
@@ -52,6 +53,15 @@ struct DrawingToolbar: View {
                     }
                     .padding(.horizontal, 8)
                 }
+
+                // ===== EDIT BRUSHES =====
+                ToolButton(
+                    iconName: "pencil.tip",
+                    label: "Edit",
+                    isSelected: false,
+                    showNames: true,
+                    action: { showBrushEditor = true }
+                )
 
                 Spacer()
 
@@ -157,6 +167,9 @@ struct DrawingToolbar: View {
         .onAppear {
             isCursorSelected = true
             onToolModeChanged?(.cursorPan)
+        }
+        .sheet(isPresented: $showBrushEditor) {
+            BrushEditorView(brushManager: brushManager)
         }
     }
 }

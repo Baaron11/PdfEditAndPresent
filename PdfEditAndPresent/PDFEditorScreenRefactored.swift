@@ -844,8 +844,8 @@ struct PDFEditorScreenRefactored: View {
     }
     
     private var continuousScrollView: some View {
-        ZStack(alignment: .bottom) {
-            // Scrollable PDF content with embedded canvases per page
+        VStack(spacing: 0) {
+            // Content area - takes remaining space
             HStack(spacing: 0) {
                 if isSidebarOpen {
                     ContinuousScrollThumbnailSidebar(
@@ -891,8 +891,9 @@ struct PDFEditorScreenRefactored: View {
                 .ignoresSafeArea()
                 .gesture(continuousZoomGesture)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            // === Drawing toolbar overlay ===
+            // Toolbar section - fixed at bottom
             if showDrawingToolbar {
                 DrawingToolbar(
                     selectedBrush: $selectedBrush,
@@ -903,9 +904,6 @@ struct PDFEditorScreenRefactored: View {
                         print("🧹 Cleared canvas (continuous mode)")
                     }
                 )
-                .padding(.bottom, 12)
-                .background(.ultraThinMaterial)
-                .shadow(radius: 3)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
                 .zIndex(3)
             }
@@ -941,59 +939,66 @@ struct PDFEditorScreenRefactored: View {
     }
     
     private var singlePagePDFContent: some View {
-        ZStack {
-            Color(UIColor.systemGray6)
-                .ignoresSafeArea()
+        VStack(spacing: 0) {
+            // Content area
+            ZStack {
+                Color(UIColor.systemGray6)
+                    .ignoresSafeArea()
 
-            ZStack(alignment: .topLeading) {
-                // PDF background
-                PDFPageBackground(
-                    pdfManager: pdfManager,
-                    currentPageIndex: pdfManager.currentPageIndex
-                )
+                ZStack(alignment: .topLeading) {
+                    PDFPageBackground(
+                        pdfManager: pdfManager,
+                        currentPageIndex: pdfManager.currentPageIndex
+                    )
 
-                // Canvas - fill the same space as the PDF
-                UnifiedBoardCanvasView(
-                    editorData: editorData,
-                    pdfManager: pdfManager,
-                    canvasMode: $canvasMode,
-                    marginSettings: $marginSettings,
-                    canvasSize: pdfManager.effectiveSize(for: pdfManager.currentPageIndex),
-                    currentPageIndex: pdfManager.currentPageIndex,
-                    zoomLevel: pdfManager.zoomLevel,
-                    pageRotation: pdfManager.rotationForPage(pdfManager.currentPageIndex),
-                    onModeChanged: { newMode in
-                        print("📍 Canvas mode: \(newMode)")
-                    },
-                    onPaperKitItemAdded: {
-                        print("📌 Item added to canvas - marking as unsaved")
-                        pdfViewModel.hasUnsavedChanges = true
-                    },
-                    onDrawingChanged: { pageIndex, pdfDrawing, marginDrawing in
-                        if let pdfDrawing = pdfDrawing {
-                            pdfManager.setPdfAnchoredDrawing(pdfDrawing, for: pageIndex)
+                    UnifiedBoardCanvasView(
+                        editorData: editorData,
+                        pdfManager: pdfManager,
+                        canvasMode: $canvasMode,
+                        marginSettings: $marginSettings,
+                        canvasSize: pdfManager.effectiveSize(for: pdfManager.currentPageIndex),
+                        currentPageIndex: pdfManager.currentPageIndex,
+                        zoomLevel: pdfManager.zoomLevel,
+                        pageRotation: pdfManager.rotationForPage(pdfManager.currentPageIndex),
+                        onModeChanged: { newMode in
+                            print("📍 Canvas mode: \(newMode)")
+                        },
+                        onPaperKitItemAdded: {
+                            print("📌 Item added to canvas - marking as unsaved")
+                            pdfViewModel.hasUnsavedChanges = true
+                        },
+                        onDrawingChanged: { pageIndex, pdfDrawing, marginDrawing in
+                            if let pdfDrawing = pdfDrawing {
+                                pdfManager.setPdfAnchoredDrawing(pdfDrawing, for: pageIndex)
+                            }
+                            if let marginDrawing = marginDrawing {
+                                pdfManager.setMarginDrawing(marginDrawing, for: pageIndex)
+                            }
+                        },
+                        onToolAPIReady: { api in
+                            print("🧩 Tool API ready")
+                            let adapter = UnifiedBoardCanvasAdapter(api: api)
+                            self.drawingCanvasAdapter = adapter
+                            drawingVM.attachCanvas(adapter)
                         }
-                        if let marginDrawing = marginDrawing {
-                            pdfManager.setMarginDrawing(marginDrawing, for: pageIndex)
-                        }
-                    },
-                    onToolAPIReady: { api in
-                        print("🧩 Tool API ready")
-                        let adapter = UnifiedBoardCanvasAdapter(api: api)
-                        self.drawingCanvasAdapter = adapter
-                        drawingVM.attachCanvas(adapter)
-                    }
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            }
-            // Zoom and pan applied to BOTH PDF and canvas together
-            .scaleEffect(pdfManager.zoomLevel, anchor: .topLeading)
-            .offset(panOffset)
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                }
+                .scaleEffect(pdfManager.zoomLevel, anchor: .topLeading)
+                .offset(panOffset)
 
-            if canvasMode == .selecting {
-                panGestureOverlay
+                if canvasMode == .selecting {
+                    panGestureOverlay
+                }
             }
+            .clipped()
+            .onSizeChange { size in
+                viewportSize = size
+            }
+            .gesture(singlePageZoomGesture)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
+            // Toolbar section - fixed at bottom
             if showDrawingToolbar, let _ = drawingCanvasAdapter {
                 DrawingToolbar(
                     selectedBrush: $selectedBrush,
@@ -1005,20 +1010,13 @@ struct PDFEditorScreenRefactored: View {
                         pdfManager.setMarginDrawing(PKDrawing(), for: idx)
                     }
                 )
-                .padding(.horizontal, 12)
-                .padding(.bottom, 10)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
-        }
-        .clipped()
-        .onSizeChange { size in
-            viewportSize = size
-        }
-        .gesture(singlePageZoomGesture)
-        .onChange(of: canvasMode) { _, newMode in
-            if newMode == .selecting {
-                showDrawingToolbar = false
+
+            .onChange(of: canvasMode) { _, newMode in
+                if newMode == .selecting {
+                    showDrawingToolbar = false
+                }
             }
         }
     }

@@ -131,49 +131,6 @@ struct DrawingToolbarView: View {
     }
 }
 
-// MARK: - Brush Button (respects showName)
-struct BrushButton: View {
-    let brush: BrushConfiguration
-    let isSelected: Bool
-    let action: () -> Void
-    
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 2) {
-                Image(systemName: brush.type.iconName)
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(brush.color.color)
-                
-                // ✅ Conditionally show name based on brush.showName
-                if brush.showName {
-                    Text(brush.name)
-                        .font(.caption2)
-                        .lineLimit(1)
-                        .foregroundColor(.primary)
-                } else {
-                    // No empty space when name is hidden
-                    EmptyView()
-                }
-            }
-            .frame(height: brush.showName ? 44 : 28)
-            .frame(minWidth: 44)
-            .background(
-                isSelected
-                    ? Color.blue.opacity(0.2)
-                    : Color.gray.opacity(0.1)
-            )
-            .cornerRadius(6)
-            .overlay(
-                RoundedRectangle(cornerRadius: 6)
-                    .stroke(
-                        isSelected ? Color.blue : Color.clear,
-                        lineWidth: 2
-                    )
-            )
-        }
-    }
-}
-
 #if DEBUG
 struct DrawingToolbarView_Previews: PreviewProvider {
     static var previews: some View {

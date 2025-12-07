@@ -51,17 +51,28 @@ struct MarginSettings: Codable, Equatable {
     /// 0.1 ... 1.0 (1.0 = original size, <1.0 shrinks PDF to create visible margins)
     var pdfScale: CGFloat = 1.0
     var appliedToAllPages: Bool = false
-    
+
+    /// Minimum margin scale (how small the PDF can shrink). Default 0.10 = 10%
+    /// This determines how much extra canvas space is needed for drawing beyond the PDF.
+    var minimumMarginScale: CGFloat = 0.10
+
+    /// Maximum margin scale (full size). Default 1.0 = 100%
+    var maximumMarginScale: CGFloat = 1.0
+
     init(
         isEnabled: Bool = false,
         anchorPosition: AnchorPosition = .center,
         pdfScale: CGFloat = 1.0,
-        appliedToAllPages: Bool = false
+        appliedToAllPages: Bool = false,
+        minimumMarginScale: CGFloat = 0.10,
+        maximumMarginScale: CGFloat = 1.0
     ) {
         self.isEnabled = isEnabled
         self.anchorPosition = anchorPosition
         self.pdfScale = max(0.1, min(pdfScale, 1.0))
         self.appliedToAllPages = appliedToAllPages
+        self.minimumMarginScale = max(0.01, min(minimumMarginScale, 1.0))
+        self.maximumMarginScale = max(minimumMarginScale, min(maximumMarginScale, 1.0))
     }
 }
 

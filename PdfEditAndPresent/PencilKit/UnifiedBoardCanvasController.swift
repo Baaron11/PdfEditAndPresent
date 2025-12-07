@@ -78,6 +78,59 @@ final class UnifiedBoardCanvasController: UIViewController {
     private var currentZoomLevel: CGFloat = 1.0
     private var currentPageRotation: Int = 0
 
+    // MARK: - Dynamic Canvas Size Helpers
+
+    /// Get the current page size from PDFManager
+    private func getCurrentPageSize() -> CGSize {
+        if let pdfManager = pdfManager {
+            return pdfManager.effectiveSize(for: currentPageIndex)
+        }
+        // Fallback to stored canvasSize if PDFManager unavailable
+        return canvasSize
+    }
+
+    /// Calculate expansion ratio based on minimum allowed margin scale
+    /// If margins can scale to 10%, we need 90% extra space on all sides
+    private func getMarginExpansionRatio() -> CGFloat {
+        // Minimum margin scale is how small the PDF can get
+        // Expansion ratio = how much space we need beyond that
+        let minimumMarginScale = marginSettings.minimumMarginScale  // e.g., 0.10
+        let expansionRatio = 1.0 - minimumMarginScale
+
+        print("📐 [EXPANSION] Margin scale range: \(minimumMarginScale * 100)% - 100%")
+        print("📐 [EXPANSION] Expansion ratio needed: \(expansionRatio * 100)%")
+
+        return expansionRatio
+    }
+
+    /// Calculate oversized canvas size based on current page and margin settings
+    private var expandedCanvasSize: CGSize {
+        let pageSize = getCurrentPageSize()
+        let expansionRatio = getMarginExpansionRatio()
+
+        let horizontalMargin = pageSize.width * expansionRatio
+        let verticalMargin = pageSize.height * expansionRatio
+
+        let width = pageSize.width + (horizontalMargin * 2)
+        let height = pageSize.height + (verticalMargin * 2)
+
+        print("📐 [SIZE] Page: \(pageSize)")
+        print("📐 [SIZE] Expanded canvas: \(width) × \(height)")
+
+        return CGSize(width: width, height: height)
+    }
+
+    /// Calculate where PDF sits within the expanded canvas
+    private var pdfOffsetInCanvas: CGPoint {
+        let pageSize = getCurrentPageSize()
+        let expansionRatio = getMarginExpansionRatio()
+
+        let xOffset = pageSize.width * expansionRatio
+        let yOffset = pageSize.height * expansionRatio
+
+        return CGPoint(x: xOffset, y: yOffset)
+    }
+
     // MARK: - Initialization
 
     override func viewDidLoad() {
@@ -175,19 +228,22 @@ final class UnifiedBoardCanvasController: UIViewController {
 
     private func pinCanvas(_ canvas: PKCanvasView, to host: UIView) {
         let canvasName = canvas === pdfDrawingCanvas ? "pdfDrawingCanvas" : (canvas === marginDrawingCanvas ? "marginDrawingCanvas" : "unknownCanvas")
+        let expanded = expandedCanvasSize  // Use dynamic expanded size
+
         print("📐 [CONSTRAINT] pinCanvas() called for \(canvasName)")
-        print("📐 [CONSTRAINT]   Setting width constraint: \(canvasSize.width)")
-        print("📐 [CONSTRAINT]   Setting height constraint: \(canvasSize.height)")
+        print("📐 [CONSTRAINT]   Page size: \(getCurrentPageSize())")
+        print("📐 [CONSTRAINT]   Setting expanded width constraint: \(expanded.width)")
+        print("📐 [CONSTRAINT]   Setting expanded height constraint: \(expanded.height)")
 
         canvas.translatesAutoresizingMaskIntoConstraints = false
         host.addSubview(canvas)
 
-        // Constrain canvas to PDF page size (NOT container size)
+        // Constrain canvas to EXPANDED size (allows drawing beyond PDF)
         NSLayoutConstraint.activate([
             canvas.leadingAnchor.constraint(equalTo: host.leadingAnchor),
             canvas.topAnchor.constraint(equalTo: host.topAnchor),
-            canvas.widthAnchor.constraint(equalToConstant: canvasSize.width),
-            canvas.heightAnchor.constraint(equalToConstant: canvasSize.height)
+            canvas.widthAnchor.constraint(equalToConstant: expanded.width),
+            canvas.heightAnchor.constraint(equalToConstant: expanded.height)
         ])
 
         // Setup
@@ -303,7 +359,8 @@ final class UnifiedBoardCanvasController: UIViewController {
     /// Setup dual PencilKit layers
     func setupPencilKit() {
         print("🎛️ [LIFECYCLE] setupPencilKit() called")
-        print("🎛️ [LIFECYCLE]   Current canvasSize: \(canvasSize.width) x \(canvasSize.height)")
+        print("🎛️ [LIFECYCLE]   Page size: \(getCurrentPageSize())")
+        print("🎛️ [LIFECYCLE]   Expanded canvas: \(expandedCanvasSize)")
         print("🎛️ [LIFECYCLE]   Current pageRotation: \(currentPageRotation)°")
 
         // Clean up old canvases
@@ -365,6 +422,7 @@ final class UnifiedBoardCanvasController: UIViewController {
         // 🔍 DIAGNOSTIC: Run full diagnostics after setupPencilKit()
         self.runFullDiagnostics(label: "After setupPencilKit()")
 
+        print("✅ Canvas size: \(expandedCanvasSize)")
         print("Dual PencilKit layers setup complete")
     }
 
@@ -395,8 +453,19 @@ final class UnifiedBoardCanvasController: UIViewController {
 
     /// Update margin settings and reapply transforms
     func updateMarginSettings(_ settings: MarginSettings) {
+        print("📐 [SETTINGS] Margin settings updated")
+        print("📐 [SETTINGS]   Enabled: \(settings.isEnabled)")
+        print("📐 [SETTINGS]   Scale: \(settings.pdfScale * 100)%")
+        print("📐 [SETTINGS]   Min scale: \(settings.minimumMarginScale * 100)%")
+        print("📐 [SETTINGS]   Anchor: \(settings.anchorPosition)")
+
         marginSettings = settings
         rebuildTransformer()
+
+        // If minimum scale changed, expansion ratio changes
+        let newExpansion = getMarginExpansionRatio()
+        print("📐 [SETTINGS]   Expansion ratio: \(newExpansion * 100)%")
+        print("📐 [SETTINGS]   Expanded canvas: \(expandedCanvasSize)")
 
         // Update mask when margins change
         updateCanvasMask()
@@ -406,9 +475,8 @@ final class UnifiedBoardCanvasController: UIViewController {
 
     /// Set current page index and load drawings
     func setCurrentPage(_ pageIndex: Int) {
-        print("🎛️ [LIFECYCLE] setCurrentPage() called with pageIndex: \(pageIndex)")
-        print("🎛️ [LIFECYCLE]   Previous currentPageIndex: \(currentPageIndex)")
-        print("🎛️ [LIFECYCLE]   Current canvasSize: \(canvasSize.width) x \(canvasSize.height)")
+        print("📄 [PAGE] Switching to page \(pageIndex + 1)")
+        print("📄 [PAGE]   Previous page: \(currentPageIndex + 1)")
 
         // Save current page drawings before switching
         saveCurrentPageDrawings()
@@ -418,17 +486,31 @@ final class UnifiedBoardCanvasController: UIViewController {
         // Get the actual page size from PDFManager for this specific page
         if let pdfManager = pdfManager {
             let pageSize = pdfManager.effectiveSize(for: pageIndex)
-            print("🎛️ [LIFECYCLE]   PDFManager returned size for page \(pageIndex + 1): \(pageSize.width) x \(pageSize.height)")
+            print("📄 [PAGE]   New page size: \(pageSize)")
             canvasSize = pageSize
         } else {
-            print("🎛️ [LIFECYCLE]   WARNING: pdfManager is nil, keeping canvasSize: \(canvasSize)")
+            print("📄 [PAGE]   WARNING: pdfManager is nil, keeping canvasSize: \(canvasSize)")
         }
+
+        // Log dynamic expansion calculations
+        let newPageSize = getCurrentPageSize()
+        let expanded = expandedCanvasSize
+        let expansionRatio = getMarginExpansionRatio()
+        print("📄 [PAGE]   Page size from PDFManager: \(newPageSize)")
+        print("📄 [PAGE]   Expansion ratio: \(expansionRatio * 100)%")
+        print("📄 [PAGE]   Expanded canvas size: \(expanded)")
 
         loadPageDrawings(for: pageIndex)
         rebuildTransformer()
-        print("🎛️ [LIFECYCLE]   About to call applyTransforms()")
+
+        // Reconfigure canvas constraints for the new page size
+        reconfigureCanvasConstraints()
+
+        // Reapply transforms and update mask
         applyTransforms()
-        print("🎛️ [LIFECYCLE]   setCurrentPage() complete")
+        updateCanvasMask()
+
+        print("📄 [PAGE]   Page \(pageIndex + 1) loaded successfully")
     }
 
     /// Get PDF-anchored drawing for a page (normalized)
@@ -492,9 +574,13 @@ final class UnifiedBoardCanvasController: UIViewController {
         // 🔍 DIAGNOSTIC: Run diagnostics BEFORE applyTransforms
         self.runFullDiagnostics(label: "BEFORE applyTransforms() - currentPageRotation: \(currentPageRotation)°")
 
+        let pageSize = getCurrentPageSize()
+        let expanded = expandedCanvasSize
+
         print("🔄 [TRANSFORM] applyTransforms() called")
-        print("🔄 [TRANSFORM]   canvasSize: \(canvasSize.width) x \(canvasSize.height)")
-        print("🔄 [TRANSFORM]   currentPageRotation: \(currentPageRotation)°")
+        print("🔄 [TRANSFORM]   Page size: \(pageSize.width) x \(pageSize.height)")
+        print("🔄 [TRANSFORM]   Expanded canvas: \(expanded.width) x \(expanded.height)")
+        print("🔄 [TRANSFORM]   Rotation: \(currentPageRotation)°")
         print("🔄 [TRANSFORM]   containerView.bounds: \(containerView.bounds)")
 
         // Apply display transform to pdfHost (PaperKit) only
@@ -508,28 +594,27 @@ final class UnifiedBoardCanvasController: UIViewController {
         print("🔄 [TRANSFORM]   rotationRadians: \(rotationRadians)")
         print("🔄 [TRANSFORM]   isRotated90or270: \(isRotated90or270)")
 
-        // After rotation, frame dimensions swap for 90°/270°
-        // This is the visual size the canvas will occupy after rotation
+        // Frame size after rotation (dimensions swap for 90°/270°)
         let frameWidth: CGFloat
         let frameHeight: CGFloat
 
         if isRotated90or270 {
-            frameWidth = canvasSize.height   // swapped
-            frameHeight = canvasSize.width   // swapped
+            frameWidth = expanded.height   // swapped
+            frameHeight = expanded.width   // swapped
         } else {
-            frameWidth = canvasSize.width
-            frameHeight = canvasSize.height
+            frameWidth = expanded.width
+            frameHeight = expanded.height
         }
 
-        print("🔄 [TRANSFORM]   frameSize after rotation: \(frameWidth) x \(frameHeight)")
+        print("🔄 [TRANSFORM]   Frame after rotation: \(frameWidth) x \(frameHeight)")
 
-        // Update container bounds to match rotated page dimensions
+        // Update container bounds to match rotated expanded canvas dimensions
         containerView.bounds = CGRect(x: 0, y: 0, width: frameWidth, height: frameHeight)
 
         // IMPORTANT: Setting frame AFTER rotation doesn't work because frame is recalculated
         // based on center and transformed bounds. Instead, we must:
         // 1. Reset transform to identity
-        // 2. Set bounds (logical drawing size, unchanged by rotation)
+        // 2. Set bounds (logical drawing size - expanded canvas)
         // 3. Set center (calculated for desired frame position AFTER rotation)
         // 4. Apply rotation transform
 
@@ -537,9 +622,9 @@ final class UnifiedBoardCanvasController: UIViewController {
         pdfDrawingCanvas?.transform = .identity
         marginDrawingCanvas?.transform = .identity
 
-        // Set bounds to original canvas size (the logical drawing area)
-        pdfDrawingCanvas?.bounds = CGRect(origin: .zero, size: canvasSize)
-        marginDrawingCanvas?.bounds = CGRect(origin: .zero, size: canvasSize)
+        // Set bounds to EXPANDED canvas size (the full logical drawing area)
+        pdfDrawingCanvas?.bounds = CGRect(origin: .zero, size: expanded)
+        marginDrawingCanvas?.bounds = CGRect(origin: .zero, size: expanded)
 
         // Calculate center for frame at origin (0, 0) after rotation
         // Formula: For frame.origin = (0, 0), center = (frameWidth/2, frameHeight/2)
@@ -547,7 +632,7 @@ final class UnifiedBoardCanvasController: UIViewController {
         pdfDrawingCanvas?.center = correctCenter
         marginDrawingCanvas?.center = correctCenter
 
-        print("🔄 [TRANSFORM]   bounds: \(canvasSize)")
+        print("🔄 [TRANSFORM]   bounds: \(expanded)")
         print("🔄 [TRANSFORM]   center: \(correctCenter)")
 
         // Apply rotation transform LAST
@@ -561,7 +646,7 @@ final class UnifiedBoardCanvasController: UIViewController {
         // Update margin canvas visibility based on margins enabled
         marginDrawingCanvas?.isHidden = !marginSettings.isEnabled
 
-        // Update mask after transforms
+        // Update mask after transforms (automatically uses dynamic page size)
         updateCanvasMask()
 
         print("🔄 [TRANSFORM]   Final containerView.bounds: \(containerView.bounds)")
@@ -570,7 +655,7 @@ final class UnifiedBoardCanvasController: UIViewController {
         self.runFullDiagnostics(label: "AFTER applyTransforms() - currentPageRotation: \(currentPageRotation)°")
     }
 
-    /// Update the mask that clips the oversized 2.8x canvas to show only valid drawing area
+    /// Update the mask that clips the dynamically-sized canvas to show only valid drawing area
     private func updateCanvasMask() {
         print("🎭 [MASK] Updating canvas mask")
 
@@ -579,28 +664,24 @@ final class UnifiedBoardCanvasController: UIViewController {
             return
         }
 
-        guard let pdfManager = pdfManager else {
-            print("🎭 [MASK] No PDF manager available")
-            return
-        }
-
         let settings = marginSettings
-        let pageSize = pdfManager.effectiveSize(for: currentPageIndex)
+        let pageSize = getCurrentPageSize()  // Get from PDFManager dynamically
+        let offset = pdfOffsetInCanvas       // Automatically calculated from expansion ratio
+        let expanded = expandedCanvasSize    // Dynamically calculated
         let isRotated90or270 = currentPageRotation == 90 || currentPageRotation == 270
 
         // TRUE PAGE DIMENSIONS - swap for 90°/270° rotations
         let truePageWidth: CGFloat = isRotated90or270 ? pageSize.height : pageSize.width
         let truePageHeight: CGFloat = isRotated90or270 ? pageSize.width : pageSize.height
 
-        // CONTAINER DIMENSIONS - calculated from actual page size (2.8x expansion)
-        let baseContainerWidth: CGFloat = pageSize.width * 2.8
-        let baseContainerHeight: CGFloat = pageSize.height * 2.8
-
-        let containerWidth: CGFloat = isRotated90or270 ? baseContainerHeight : baseContainerWidth
-        let containerHeight: CGFloat = isRotated90or270 ? baseContainerHeight : baseContainerHeight
+        // CONTAINER DIMENSIONS - dynamically calculated based on margin settings
+        let containerWidth: CGFloat = isRotated90or270 ? expanded.height : expanded.width
+        let containerHeight: CGFloat = isRotated90or270 ? expanded.width : expanded.height
 
         print("🎭 [MASK]   Page size: \(pageSize)")
+        print("🎭 [MASK]   Expanded canvas: \(expanded)")
         print("🎭 [MASK]   Container: \(containerWidth) x \(containerHeight)")
+        print("🎭 [MASK]   PDF offset in canvas: \(offset)")
         print("🎭 [MASK]   Margins enabled: \(settings.isEnabled)")
 
         // Create mask if needed
@@ -677,7 +758,9 @@ final class UnifiedBoardCanvasController: UIViewController {
         containerView.setNeedsLayout()
         containerView.layoutIfNeeded()
 
-        print("🎯 Canvas constraints reconfigured for size: \(canvasSize)")
+        print("🎯 Canvas constraints reconfigured:")
+        print("🎯   Page size: \(getCurrentPageSize())")
+        print("🎯   Expanded canvas: \(expandedCanvasSize)")
 
         // 🔍 DIAGNOSTIC: Run diagnostics AFTER reconfigureCanvasConstraints
         self.runFullDiagnostics(label: "AFTER reconfigureCanvasConstraints()")

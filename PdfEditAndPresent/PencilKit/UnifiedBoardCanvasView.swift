@@ -53,16 +53,13 @@ struct UnifiedBoardCanvasView: UIViewControllerRepresentable {
             }
         }
 
-        controller.onDrawingChanged = { pageIndex, pdfDrawing, marginDrawing in
+        controller.onDrawingChanged = { pageIndex, drawing, _ in
             DispatchQueue.main.async {
-                // Update PDFManager with new drawings
-                if let pdfDrawing = pdfDrawing {
-                    pdfManager.setPdfAnchoredDrawing(pdfDrawing, for: pageIndex)
+                // Update PDFManager with drawing (single canvas)
+                if let drawing = drawing {
+                    pdfManager.setPdfAnchoredDrawing(drawing, for: pageIndex)
                 }
-                if let marginDrawing = marginDrawing {
-                    pdfManager.setMarginDrawing(marginDrawing, for: pageIndex)
-                }
-                onDrawingChanged?(pageIndex, pdfDrawing, marginDrawing)
+                onDrawingChanged?(pageIndex, drawing, nil)
             }
         }
 
@@ -71,11 +68,9 @@ struct UnifiedBoardCanvasView: UIViewControllerRepresentable {
         controller.updateMarginSettings(marginSettings)
         controller.setCurrentPage(currentPageIndex)
 
-        // Load existing drawings from PDFManager
-        let pdfDrawing = pdfManager.getPdfAnchoredDrawing(for: currentPageIndex)
-        let marginDrawing = pdfManager.getMarginDrawing(for: currentPageIndex)
-        controller.setPdfAnchoredDrawing(pdfDrawing, for: currentPageIndex)
-        controller.setMarginDrawing(marginDrawing, for: currentPageIndex)
+        // Load existing drawing from PDFManager (single canvas)
+        let drawing = pdfManager.getPdfAnchoredDrawing(for: currentPageIndex)
+        controller.setDrawing(drawing, for: currentPageIndex)
 
         // Store reference for future updates
         context.coordinator.controller = controller
@@ -115,11 +110,9 @@ struct UnifiedBoardCanvasView: UIViewControllerRepresentable {
             print("🎛️ [SWIFTUI] updateUIViewController - page changed: \(controllerPageIndex) → \(currentPageIndex)")
             context.coordinator.currentPageIndex = currentPageIndex
 
-            // Load drawings for new page
-            let pdfDrawing = pdfManager.getPdfAnchoredDrawing(for: currentPageIndex)
-            let marginDrawing = pdfManager.getMarginDrawing(for: currentPageIndex)
-            uiViewController.setPdfAnchoredDrawing(pdfDrawing, for: currentPageIndex)
-            uiViewController.setMarginDrawing(marginDrawing, for: currentPageIndex)
+            // Load drawing for new page (single canvas)
+            let drawing = pdfManager.getPdfAnchoredDrawing(for: currentPageIndex)
+            uiViewController.setDrawing(drawing, for: currentPageIndex)
             uiViewController.setCurrentPage(currentPageIndex)
         }
 

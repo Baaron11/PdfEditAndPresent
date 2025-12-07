@@ -359,6 +359,9 @@ final class UnifiedBoardCanvasController: UIViewController {
         // Apply initial transforms
         applyTransforms()
 
+        // 🔍 DIAGNOSTIC: Run full diagnostics after setupPencilKit()
+        self.runFullDiagnostics(label: "After setupPencilKit()")
+
         print("Dual PencilKit layers setup complete")
     }
 
@@ -479,6 +482,9 @@ final class UnifiedBoardCanvasController: UIViewController {
             return
         }
 
+        // 🔍 DIAGNOSTIC: Run diagnostics BEFORE applyTransforms
+        self.runFullDiagnostics(label: "BEFORE applyTransforms() - currentPageRotation: \(currentPageRotation)°")
+
         print("🔄 [TRANSFORM] applyTransforms() called")
         print("🔄 [TRANSFORM]   canvasSize: \(canvasSize.width) x \(canvasSize.height)")
         print("🔄 [TRANSFORM]   currentPageRotation: \(currentPageRotation)°")
@@ -549,9 +555,15 @@ final class UnifiedBoardCanvasController: UIViewController {
         marginDrawingCanvas?.isHidden = !marginSettings.isEnabled
 
         print("🔄 [TRANSFORM]   Final containerView.bounds: \(containerView.bounds)")
+
+        // 🔍 DIAGNOSTIC: Run diagnostics AFTER applyTransforms
+        self.runFullDiagnostics(label: "AFTER applyTransforms() - currentPageRotation: \(currentPageRotation)°")
     }
 
     private func reconfigureCanvasConstraints() {
+        // 🔍 DIAGNOSTIC: Run diagnostics BEFORE reconfigureCanvasConstraints
+        self.runFullDiagnostics(label: "BEFORE reconfigureCanvasConstraints()")
+
         guard let pdfCanvas = pdfDrawingCanvas,
               let marginCanvas = marginDrawingCanvas else { return }
 
@@ -571,6 +583,9 @@ final class UnifiedBoardCanvasController: UIViewController {
         containerView.layoutIfNeeded()
 
         print("🎯 Canvas constraints reconfigured for size: \(canvasSize)")
+
+        // 🔍 DIAGNOSTIC: Run diagnostics AFTER reconfigureCanvasConstraints
+        self.runFullDiagnostics(label: "AFTER reconfigureCanvasConstraints()")
     }
 
     // MARK: - Drawing Persistence
@@ -871,6 +886,155 @@ final class UnifiedBoardCanvasController: UIViewController {
             // Apply the rotation transform to canvas views
             applyTransforms()
         }
+    }
+}
+
+// MARK: - Diagnostics
+
+extension UnifiedBoardCanvasController {
+    /// Print complete view hierarchy of containerView
+    func printViewHierarchy() {
+        print("\n🔍 [DIAGNOSTIC] VIEW HIERARCHY")
+        print("containerView subviews count: \(containerView.subviews.count)")
+        printViewTree(containerView, indent: 0)
+        print("")
+    }
+
+    private func printViewTree(_ view: UIView, indent: Int) {
+        let indentation = String(repeating: "  ", count: indent)
+        let typeName = String(describing: type(of: view))
+        print("\(indentation)├─ \(typeName): frame=\(view.frame), bounds=\(view.bounds), hidden=\(view.isHidden), opaque=\(view.isOpaque)")
+
+        for subview in view.subviews {
+            printViewTree(subview, indent: indent + 1)
+        }
+    }
+
+    /// Check if canvas instances are the same before and after operations
+    func verifyCanvasInstances(label: String) {
+        print("\n🔍 [DIAGNOSTIC] CANVAS INSTANCES - \(label)")
+        print("pdfDrawingCanvas instance: \(Unmanaged.passUnretained(pdfDrawingCanvas as AnyObject).toOpaque()) - isHidden: \(pdfDrawingCanvas?.isHidden ?? true)")
+        print("marginDrawingCanvas instance: \(Unmanaged.passUnretained(marginDrawingCanvas as AnyObject).toOpaque()) - isHidden: \(marginDrawingCanvas?.isHidden ?? true)")
+        print("Are they different objects? \(pdfDrawingCanvas !== marginDrawingCanvas)")
+        print("")
+    }
+
+    /// Inspect all constraints affecting the canvases
+    func printCanvasConstraints() {
+        print("\n🔍 [DIAGNOSTIC] CANVAS CONSTRAINTS")
+
+        if let pdfCanvas = pdfDrawingCanvas {
+            print("pdfDrawingCanvas constraints:")
+            for constraint in pdfCanvas.constraints {
+                print("  - \(constraint)")
+            }
+        }
+
+        if let marginCanvas = marginDrawingCanvas {
+            print("marginDrawingCanvas constraints:")
+            for constraint in marginCanvas.constraints {
+                print("  - \(constraint)")
+            }
+        }
+
+        print("\ncontainerView constraints affecting canvases:")
+        for constraint in containerView.constraints {
+            if (constraint.firstItem as? UIView) === pdfDrawingCanvas ||
+               (constraint.secondItem as? UIView) === pdfDrawingCanvas ||
+               (constraint.firstItem as? UIView) === marginDrawingCanvas ||
+               (constraint.secondItem as? UIView) === marginDrawingCanvas {
+                print("  - \(constraint)")
+            }
+        }
+        print("")
+    }
+
+    /// Check canvas drawing state
+    func printCanvasDrawingState() {
+        print("\n🔍 [DIAGNOSTIC] CANVAS DRAWING STATE")
+
+        if let pdfCanvas = pdfDrawingCanvas {
+            print("pdfDrawingCanvas:")
+            print("  - drawing.strokes.count: \(pdfCanvas.drawing.strokes.count)")
+            print("  - drawing.bounds: \(pdfCanvas.drawing.bounds)")
+            print("  - isUserInteractionEnabled: \(pdfCanvas.isUserInteractionEnabled)")
+            print("  - backgroundColor: \(pdfCanvas.backgroundColor as Any)")
+            print("  - alpha: \(pdfCanvas.alpha)")
+        }
+
+        if let marginCanvas = marginDrawingCanvas {
+            print("marginDrawingCanvas:")
+            print("  - drawing.strokes.count: \(marginCanvas.drawing.strokes.count)")
+            print("  - drawing.bounds: \(marginCanvas.drawing.bounds)")
+            print("  - isUserInteractionEnabled: \(marginCanvas.isUserInteractionEnabled)")
+            print("  - backgroundColor: \(marginCanvas.backgroundColor as Any)")
+            print("  - alpha: \(marginCanvas.alpha)")
+        }
+        print("")
+    }
+
+    /// Check layer ordering and rendering
+    func printLayerOrdering() {
+        print("\n🔍 [DIAGNOSTIC] LAYER ORDERING")
+
+        for (index, subview) in containerView.subviews.enumerated() {
+            var description = "\(index): \(String(describing: type(of: subview)))"
+
+            if subview === pdfDrawingCanvas {
+                description += " [pdfDrawingCanvas]"
+            } else if subview === marginDrawingCanvas {
+                description += " [marginDrawingCanvas]"
+            } else if subview === paperKitView {
+                description += " [paperKitView]"
+            } else if subview === modeInterceptor {
+                description += " [modeInterceptor]"
+            }
+
+            print("  \(description) - frame: \(subview.frame), hidden: \(subview.isHidden)")
+        }
+        print("")
+    }
+
+    /// Check transform states
+    func printTransformStates() {
+        print("\n🔍 [DIAGNOSTIC] TRANSFORM STATES")
+
+        print("pdfDrawingCanvas transform:")
+        if let pdfCanvas = pdfDrawingCanvas {
+            print("  - \(pdfCanvas.transform)")
+            print("  - bounds: \(pdfCanvas.bounds)")
+            print("  - frame: \(pdfCanvas.frame)")
+            print("  - center: \(pdfCanvas.center)")
+        }
+
+        print("marginDrawingCanvas transform:")
+        if let marginCanvas = marginDrawingCanvas {
+            print("  - \(marginCanvas.transform)")
+            print("  - bounds: \(marginCanvas.bounds)")
+            print("  - frame: \(marginCanvas.frame)")
+            print("  - center: \(marginCanvas.center)")
+        }
+
+        print("containerView:")
+        print("  - bounds: \(containerView.bounds)")
+        print("  - frame: \(containerView.frame)")
+        print("")
+    }
+
+    /// Master diagnostic - call this to get full picture
+    func runFullDiagnostics(label: String) {
+        print("\n" + String(repeating: "=", count: 60))
+        print("🔍 [FULL DIAGNOSTIC] \(label)")
+        print(String(repeating: "=", count: 60))
+
+        printViewHierarchy()
+        verifyCanvasInstances(label: label)
+        printCanvasConstraints()
+        printCanvasDrawingState()
+        printLayerOrdering()
+        printTransformStates()
+
+        print(String(repeating: "=", count: 60) + "\n")
     }
 }
 

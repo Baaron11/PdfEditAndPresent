@@ -128,6 +128,10 @@ struct UnifiedBoardCanvasView: UIViewControllerRepresentable {
             print("🎛️ [SWIFTUI] updateUIViewController - canvasSize changed")
             print("🎛️ [SWIFTUI]   Controller canvasSize: \(uiViewController.canvasSize.width) x \(uiViewController.canvasSize.height)")
             print("🎛️ [SWIFTUI]   New canvasSize: \(canvasSize.width) x \(canvasSize.height)")
+
+            // 🔍 DIAGNOSTIC: Run diagnostics when canvasSize changes
+            uiViewController.runFullDiagnostics(label: "updateUIViewController - canvasSize changed: \(canvasSize)")
+
             uiViewController.initializeCanvas(size: canvasSize)
         }
 
@@ -136,6 +140,9 @@ struct UnifiedBoardCanvasView: UIViewControllerRepresentable {
         if oldRotation != pageRotation {
             print("🔄 [SWIFTUI] updateUIViewController - pageRotation changed: \(oldRotation)° → \(pageRotation)°")
             context.coordinator.lastRotation = pageRotation
+
+            // 🔍 DIAGNOSTIC: Run diagnostics when pageRotation changes
+            uiViewController.runFullDiagnostics(label: "updateUIViewController - pageRotation changed: \(pageRotation)°")
         }
 
         uiViewController.updateZoomAndRotation(zoomLevel, pageRotation)

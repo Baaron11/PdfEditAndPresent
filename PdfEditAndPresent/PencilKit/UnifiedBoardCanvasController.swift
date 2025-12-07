@@ -24,11 +24,8 @@ final class UnifiedBoardCanvasController: UIViewController {
     private(set) var paperKitController: PaperMarkupViewController?
     private var paperKitView: UIView?
 
-    // Layer 2: PDF-anchored drawing canvas (moves/scales with PDF)
+    // SINGLE CANVAS: Oversized, masked to show drawable area
     private(set) var pdfDrawingCanvas: PKCanvasView?
-
-    // Layer 3: Margin-anchored drawing canvas (identity transform in canvas space)
-    private(set) var marginDrawingCanvas: PKCanvasView?
 
     // Shared tool picker
     private var pencilKitToolPicker: PKToolPicker?
@@ -46,18 +43,14 @@ final class UnifiedBoardCanvasController: UIViewController {
     // Lasso controller for PencilKit selection
     private var lassoController: PKLassoSelectionController?
 
-    // Active canvas tracking (which layer receives strokes)
-    private var activeDrawingLayer: DrawingRegion = .pdf
-
     // Coordinate transformer
     private var transformer: DrawingCoordinateTransformer?
 
     // Margin settings for current page
     private(set) var marginSettings: MarginSettings = MarginSettings()
 
-    // Per-page drawing storage (normalized)
+    // Per-page drawing storage
     private var pdfAnchoredDrawings: [Int: PKDrawing] = [:]
-    private var marginDrawings: [Int: PKDrawing] = [:]
     private var currentPageIndex: Int = 0
 
     // Callbacks
@@ -185,15 +178,10 @@ final class UnifiedBoardCanvasController: UIViewController {
         applyTransforms()
 
         // Debug prints for canvas frames AFTER layout
-        if let pdfCanvas = pdfDrawingCanvas {
-            print("📍 [LAYOUT]   pdfDrawingCanvas ACTUAL frame: \(pdfCanvas.frame)")
-            print("📍 [LAYOUT]   pdfDrawingCanvas ACTUAL bounds: \(pdfCanvas.bounds)")
-            print("📍 [LAYOUT]   pdfDrawingCanvas transform: \(pdfCanvas.transform)")
-        }
-        if let marginCanvas = marginDrawingCanvas {
-            print("📍 [LAYOUT]   marginDrawingCanvas ACTUAL frame: \(marginCanvas.frame)")
-            print("📍 [LAYOUT]   marginDrawingCanvas ACTUAL bounds: \(marginCanvas.bounds)")
-            print("📍 [LAYOUT]   marginDrawingCanvas transform: \(marginCanvas.transform)")
+        if let canvas = pdfDrawingCanvas {
+            print("📍 [LAYOUT]   pdfDrawingCanvas ACTUAL frame: \(canvas.frame)")
+            print("📍 [LAYOUT]   pdfDrawingCanvas ACTUAL bounds: \(canvas.bounds)")
+            print("📍 [LAYOUT]   pdfDrawingCanvas transform: \(canvas.transform)")
         }
         print("📍 [LAYOUT]   containerView ACTUAL frame: \(containerView.frame)")
         print("📍 [LAYOUT]   view.bounds: \(view.bounds)")
@@ -227,18 +215,16 @@ final class UnifiedBoardCanvasController: UIViewController {
     // MARK: - Canvas Setup Helpers
 
     private func pinCanvas(_ canvas: PKCanvasView, to host: UIView) {
-        let canvasName = canvas === pdfDrawingCanvas ? "pdfDrawingCanvas" : (canvas === marginDrawingCanvas ? "marginDrawingCanvas" : "unknownCanvas")
         let expanded = expandedCanvasSize  // Use dynamic expanded size
 
-        print("📐 [CONSTRAINT] pinCanvas() called for \(canvasName)")
+        print("📐 [CONSTRAINT] pinCanvas() called")
         print("📐 [CONSTRAINT]   Page size: \(getCurrentPageSize())")
-        print("📐 [CONSTRAINT]   Setting expanded width constraint: \(expanded.width)")
-        print("📐 [CONSTRAINT]   Setting expanded height constraint: \(expanded.height)")
+        print("📐 [CONSTRAINT]   Setting expanded size: \(expanded.width) × \(expanded.height)")
 
         canvas.translatesAutoresizingMaskIntoConstraints = false
         host.addSubview(canvas)
 
-        // Constrain canvas to EXPANDED size (allows drawing beyond PDF)
+        // Constrain canvas to EXPANDED size (allows drawing beyond PDF in margin area)
         NSLayoutConstraint.activate([
             canvas.leadingAnchor.constraint(equalTo: host.leadingAnchor),
             canvas.topAnchor.constraint(equalTo: host.topAnchor),
@@ -255,12 +241,10 @@ final class UnifiedBoardCanvasController: UIViewController {
         canvas.maximumZoomScale = 1.0
         canvas.minimumZoomScale = 1.0
         canvas.isScrollEnabled = false
-
-        // Clipping
         canvas.clipsToBounds = true
         canvas.layer.masksToBounds = true
 
-        print("📐 [CONSTRAINT]   Constraints activated for \(canvasName)")
+        print("📐 [CONSTRAINT]   Constraints activated")
     }
 
     private func hostScrollView(from view: UIView?) -> UIScrollView? {
@@ -278,18 +262,20 @@ final class UnifiedBoardCanvasController: UIViewController {
         print("🎯 Canvas interaction: \(shouldInteract ? "ENABLED" : "DISABLED") (mode=\(canvasMode))")
 
         pdfDrawingCanvas?.isUserInteractionEnabled = shouldInteract
-        marginDrawingCanvas?.isUserInteractionEnabled = shouldInteract
 
         if !shouldInteract {
             pdfDrawingCanvas?.resignFirstResponder()
-            marginDrawingCanvas?.resignFirstResponder()
+        }
+
+        // Update mask - ensure it's applied in drawing mode
+        if shouldInteract {
+            updateCanvasMask()
         }
     }
 
-    /// Enable or disable drawing on PKCanvasViews
+    /// Enable or disable drawing on PKCanvasView
     func enableDrawing(_ enabled: Bool) {
         pdfDrawingCanvas?.isUserInteractionEnabled = enabled
-        marginDrawingCanvas?.isUserInteractionEnabled = enabled
         if enabled {
             pdfDrawingCanvas?.becomeFirstResponder()
         }
@@ -356,74 +342,57 @@ final class UnifiedBoardCanvasController: UIViewController {
         print("PaperKit setup complete")
     }
 
-    /// Setup dual PencilKit layers
+    /// Setup single oversized PencilKit canvas
     func setupPencilKit() {
         print("🎛️ [LIFECYCLE] setupPencilKit() called")
         print("🎛️ [LIFECYCLE]   Page size: \(getCurrentPageSize())")
         print("🎛️ [LIFECYCLE]   Expanded canvas: \(expandedCanvasSize)")
         print("🎛️ [LIFECYCLE]   Current pageRotation: \(currentPageRotation)°")
 
-        // Clean up old canvases
+        // Clean up old canvas
         pdfDrawingCanvas?.removeFromSuperview()
-        marginDrawingCanvas?.removeFromSuperview()
 
-        // Create PDF-anchored canvas (Layer 2)
-        let pdfCanvas = PKCanvasView()
-        pdfDrawingCanvas = pdfCanvas  // Set reference before pinCanvas so name detection works
-        print("🎛️ [LIFECYCLE]   About to call pinCanvas() for pdfDrawingCanvas")
-        pinCanvas(pdfCanvas, to: containerView)
-        pdfCanvas.delegate = self
-
-        // Create margin-anchored canvas (Layer 3)
-        let marginCanvas = PKCanvasView()
-        marginDrawingCanvas = marginCanvas  // Set reference before pinCanvas
-        print("🎛️ [LIFECYCLE]   About to call pinCanvas() for marginDrawingCanvas")
-        pinCanvas(marginCanvas, to: containerView)
-        marginCanvas.delegate = self
+        // Create SINGLE canvas (oversized for drawing + margins)
+        let canvas = PKCanvasView()
+        pdfDrawingCanvas = canvas
+        print("🎛️ [LIFECYCLE]   Creating single oversized PKCanvasView")
+        pinCanvas(canvas, to: containerView)
+        canvas.delegate = self
 
         // Shared tool picker
         let toolPicker = PKToolPicker()
-        toolPicker.setVisible(false, forFirstResponder: pdfCanvas)
-        toolPicker.addObserver(pdfCanvas)
-        toolPicker.addObserver(marginCanvas)
-
-        // References already set above for name detection in pinCanvas
+        toolPicker.setVisible(false, forFirstResponder: canvas)
+        toolPicker.addObserver(canvas)
         pencilKitToolPicker = toolPicker
 
-        // Enable multi-touch for both canvases
-        pdfCanvas.isMultipleTouchEnabled = true
-        marginCanvas.isMultipleTouchEnabled = true
-        pdfCanvas.becomeFirstResponder()
+        // Setup canvas
+        canvas.isMultipleTouchEnabled = true
+        canvas.becomeFirstResponder()
 
-        // Initialize lasso controller with the active canvas
-        lassoController = PKLassoSelectionController(canvasView: pdfCanvas)
+        // Initialize lasso controller with the single canvas
+        lassoController = PKLassoSelectionController(canvasView: canvas)
 
-        // Reconfigure canvas constraints to match current page size
+        // Reconfigure canvas constraints
         reconfigureCanvasConstraints()
 
         // Set initial tool
         let defaultTool = PKInkingTool(.pen, color: .black, width: 2)
-        pdfCanvas.tool = defaultTool
-        marginCanvas.tool = defaultTool
+        canvas.tool = defaultTool
         previousTool = defaultTool
 
-        // Bring container on top of PDF, then canvases above anything inside
+        // Bring canvas to front
         view.bringSubviewToFront(containerView)
-        containerView.bringSubviewToFront(pdfCanvas)
-        containerView.bringSubviewToFront(marginCanvas)
+        containerView.bringSubviewToFront(canvas)
         containerView.bringSubviewToFront(modeInterceptor)
 
         // Apply initial transforms
         applyTransforms()
 
-        // Initialize mask after canvases created
+        // Initialize mask - CRITICAL for showing only drawable area
         updateCanvasMask()
 
-        // 🔍 DIAGNOSTIC: Run full diagnostics after setupPencilKit()
-        self.runFullDiagnostics(label: "After setupPencilKit()")
-
         print("✅ Canvas size: \(expandedCanvasSize)")
-        print("Dual PencilKit layers setup complete")
+        print("✅ Single oversized PencilKit canvas setup complete")
     }
 
     /// Set canvas mode (drawing, selecting, idle)
@@ -513,39 +482,16 @@ final class UnifiedBoardCanvasController: UIViewController {
         print("📄 [PAGE]   Page \(pageIndex + 1) loaded successfully")
     }
 
-    /// Get PDF-anchored drawing for a page (normalized)
-    func getPdfAnchoredDrawing(for pageIndex: Int) -> PKDrawing {
+    /// Get drawing for a page (stored in canvas space, mask handles visibility)
+    func getDrawing(for pageIndex: Int) -> PKDrawing {
         return pdfAnchoredDrawings[pageIndex] ?? PKDrawing()
     }
 
-    /// Get margin drawing for a page (canvas space)
-    func getMarginDrawing(for pageIndex: Int) -> PKDrawing {
-        return marginDrawings[pageIndex] ?? PKDrawing()
-    }
-
-    /// Set PDF-anchored drawing for a page (normalized)
-    func setPdfAnchoredDrawing(_ drawing: PKDrawing, for pageIndex: Int) {
+    /// Set drawing for a page
+    func setDrawing(_ drawing: PKDrawing, for pageIndex: Int) {
         pdfAnchoredDrawings[pageIndex] = drawing
         if pageIndex == currentPageIndex {
-            loadPdfDrawingToCanvas()
-        }
-    }
-
-    /// Set margin drawing for a page (canvas space)
-    func setMarginDrawing(_ drawing: PKDrawing, for pageIndex: Int) {
-        marginDrawings[pageIndex] = drawing
-        if pageIndex == currentPageIndex {
-            marginDrawingCanvas?.drawing = drawing
-        }
-    }
-
-    /// Migrate legacy single-drawing to dual-layer format
-    func migrateLegacyDrawing(_ drawing: PKDrawing, for pageIndex: Int) {
-        // Assume legacy drawing was PDF-anchored
-        pdfAnchoredDrawings[pageIndex] = drawing
-        marginDrawings[pageIndex] = PKDrawing()
-        if pageIndex == currentPageIndex {
-            loadPageDrawings(for: pageIndex)
+            pdfDrawingCanvas?.drawing = drawing
         }
     }
 
@@ -571,8 +517,10 @@ final class UnifiedBoardCanvasController: UIViewController {
             return
         }
 
-        // 🔍 DIAGNOSTIC: Run diagnostics BEFORE applyTransforms
-        self.runFullDiagnostics(label: "BEFORE applyTransforms() - currentPageRotation: \(currentPageRotation)°")
+        guard let canvas = pdfDrawingCanvas else {
+            print("🔄 [TRANSFORM] No canvas to transform")
+            return
+        }
 
         let pageSize = getCurrentPageSize()
         let expanded = expandedCanvasSize
@@ -611,48 +559,20 @@ final class UnifiedBoardCanvasController: UIViewController {
         // Update container bounds to match rotated expanded canvas dimensions
         containerView.bounds = CGRect(x: 0, y: 0, width: frameWidth, height: frameHeight)
 
-        // IMPORTANT: Setting frame AFTER rotation doesn't work because frame is recalculated
-        // based on center and transformed bounds. Instead, we must:
-        // 1. Reset transform to identity
-        // 2. Set bounds (logical drawing size - expanded canvas)
-        // 3. Set center (calculated for desired frame position AFTER rotation)
-        // 4. Apply rotation transform
+        // Set bounds and center
+        canvas.bounds = CGRect(origin: .zero, size: expanded)
+        canvas.center = CGPoint(x: frameWidth / 2, y: frameHeight / 2)
 
-        // Reset transforms first
-        pdfDrawingCanvas?.transform = .identity
-        marginDrawingCanvas?.transform = .identity
-
-        // Set bounds to EXPANDED canvas size (the full logical drawing area)
-        pdfDrawingCanvas?.bounds = CGRect(origin: .zero, size: expanded)
-        marginDrawingCanvas?.bounds = CGRect(origin: .zero, size: expanded)
-
-        // Calculate center for frame at origin (0, 0) after rotation
-        // Formula: For frame.origin = (0, 0), center = (frameWidth/2, frameHeight/2)
-        let correctCenter = CGPoint(x: frameWidth / 2, y: frameHeight / 2)
-        pdfDrawingCanvas?.center = correctCenter
-        marginDrawingCanvas?.center = correctCenter
-
-        print("🔄 [TRANSFORM]   bounds: \(expanded)")
-        print("🔄 [TRANSFORM]   center: \(correctCenter)")
-
-        // Apply rotation transform LAST
+        // Apply rotation
         let rotationTransform = CGAffineTransform(rotationAngle: rotationRadians)
-        pdfDrawingCanvas?.transform = rotationTransform
-        marginDrawingCanvas?.transform = rotationTransform
+        canvas.transform = rotationTransform
 
-        print("🔄 [TRANSFORM]   Applied rotation transform to both canvases")
-        print("🔄 [TRANSFORM]   pdfDrawingCanvas.frame: \(pdfDrawingCanvas?.frame ?? .zero)")
+        print("🔄 [TRANSFORM]   Canvas transform applied")
 
-        // Update margin canvas visibility based on margins enabled
-        marginDrawingCanvas?.isHidden = !marginSettings.isEnabled
-
-        // Update mask after transforms (automatically uses dynamic page size)
+        // ✅ CRITICAL: Update mask after transforms
         updateCanvasMask()
 
         print("🔄 [TRANSFORM]   Final containerView.bounds: \(containerView.bounds)")
-
-        // 🔍 DIAGNOSTIC: Run diagnostics AFTER applyTransforms
-        self.runFullDiagnostics(label: "AFTER applyTransforms() - currentPageRotation: \(currentPageRotation)°")
     }
 
     /// Update the mask that clips the dynamically-sized canvas to show only valid drawing area
@@ -737,22 +657,14 @@ final class UnifiedBoardCanvasController: UIViewController {
     }
 
     private func reconfigureCanvasConstraints() {
-        // 🔍 DIAGNOSTIC: Run diagnostics BEFORE reconfigureCanvasConstraints
-        self.runFullDiagnostics(label: "BEFORE reconfigureCanvasConstraints()")
-
-        guard let pdfCanvas = pdfDrawingCanvas,
-              let marginCanvas = marginDrawingCanvas else { return }
+        guard let canvas = pdfDrawingCanvas else { return }
 
         // Deactivate old constraints
-        pdfCanvas.constraints.forEach { $0.isActive = false }
-        marginCanvas.constraints.forEach { $0.isActive = false }
+        canvas.constraints.forEach { $0.isActive = false }
 
         // Re-pin with new canvasSize
-        pdfCanvas.removeFromSuperview()
-        marginCanvas.removeFromSuperview()
-
-        pinCanvas(pdfCanvas, to: containerView)
-        pinCanvas(marginCanvas, to: containerView)
+        canvas.removeFromSuperview()
+        pinCanvas(canvas, to: containerView)
 
         // Force layout update
         containerView.setNeedsLayout()
@@ -761,67 +673,22 @@ final class UnifiedBoardCanvasController: UIViewController {
         print("🎯 Canvas constraints reconfigured:")
         print("🎯   Page size: \(getCurrentPageSize())")
         print("🎯   Expanded canvas: \(expandedCanvasSize)")
-
-        // 🔍 DIAGNOSTIC: Run diagnostics AFTER reconfigureCanvasConstraints
-        self.runFullDiagnostics(label: "AFTER reconfigureCanvasConstraints()")
     }
 
     // MARK: - Drawing Persistence
 
     private func saveCurrentPageDrawings() {
-        guard let pdfCanvas = pdfDrawingCanvas,
-              let marginCanvas = marginDrawingCanvas,
-              let transformer = transformer else { return }
+        guard let canvas = pdfDrawingCanvas else { return }
 
-        // Normalize PDF canvas drawing to PDF space before storing
-        let pdfDrawing = transformer.normalizeDrawingFromCanvasToPDF(pdfCanvas.drawing)
-        pdfAnchoredDrawings[currentPageIndex] = pdfDrawing
+        // Store drawing directly - mask handles what's visible
+        pdfAnchoredDrawings[currentPageIndex] = canvas.drawing
 
-        // Store margin drawing directly in canvas space
-        marginDrawings[currentPageIndex] = marginCanvas.drawing
-
-        // Notify delegate
-        onDrawingChanged?(currentPageIndex, pdfDrawing, marginCanvas.drawing)
+        onDrawingChanged?(currentPageIndex, canvas.drawing, nil)
     }
 
     private func loadPageDrawings(for pageIndex: Int) {
-        loadPdfDrawingToCanvas()
-        marginDrawingCanvas?.drawing = marginDrawings[pageIndex] ?? PKDrawing()
-    }
-
-    private func loadPdfDrawingToCanvas() {
-        guard let transformer = transformer else {
-            pdfDrawingCanvas?.drawing = PKDrawing()
-            return
-        }
-
-        let normalizedDrawing = pdfAnchoredDrawings[currentPageIndex] ?? PKDrawing()
-        let canvasDrawing = transformer.denormalizeDrawingFromPDFToCanvas(normalizedDrawing)
-        pdfDrawingCanvas?.drawing = canvasDrawing
-    }
-
-    // MARK: - Input Routing
-
-    private func determineActiveLayer(for point: CGPoint) -> DrawingRegion {
-        guard let transformer = transformer else { return .pdf }
-        return transformer.region(forViewPoint: point)
-    }
-
-    private func routeInputToLayer(_ region: DrawingRegion) {
-        activeDrawingLayer = region
-
-        switch region {
-        case .pdf:
-            pdfDrawingCanvas?.isUserInteractionEnabled = true
-            marginDrawingCanvas?.isUserInteractionEnabled = false
-            pdfDrawingCanvas?.becomeFirstResponder()
-            lassoController?.setTargetCanvas(pdfDrawingCanvas)
-        case .margin:
-            pdfDrawingCanvas?.isUserInteractionEnabled = false
-            marginDrawingCanvas?.isUserInteractionEnabled = true
-            marginDrawingCanvas?.becomeFirstResponder()
-            lassoController?.setTargetCanvas(marginDrawingCanvas)
-        }
+        let drawing = pdfAnchoredDrawings[pageIndex] ?? PKDrawing()
+        pdfDrawingCanvas?.drawing = drawing
     }
 
     // MARK: - Mode Interceptor
@@ -895,30 +762,27 @@ final class UnifiedBoardCanvasController: UIViewController {
     // MARK: - Gesture Routing
 
     private func updateGestureRouting() {
-            switch canvasMode {
-            case .drawing:
-                enableDrawing(true)
-                paperKitView?.isUserInteractionEnabled = false
-                // ✅ DISABLE interceptor during drawing so touches reach canvases below
-                // The interceptor only needs to be active to detect PaperKit interactions in select/idle modes
-                modeInterceptor.isUserInteractionEnabled = false
-                print("🖊️ Drawing mode active — PKCanvasViews enabled")
-                print("🎯 pdfCanvas isUserInteractionEnabled=\(pdfDrawingCanvas?.isUserInteractionEnabled ?? false)")
+        switch canvasMode {
+        case .drawing:
+            enableDrawing(true)
+            paperKitView?.isUserInteractionEnabled = false
+            modeInterceptor.isUserInteractionEnabled = false
+            print("🖊️ Drawing mode active — PKCanvasView enabled")
+            print("🎯 pdfCanvas isUserInteractionEnabled=\(pdfDrawingCanvas?.isUserInteractionEnabled ?? false)")
 
-            case .selecting:
-                enableDrawing(false)
-                paperKitView?.isUserInteractionEnabled = true
-                // ✅ ENABLE interceptor during selecting to detect PaperKit interactions
-                modeInterceptor.isUserInteractionEnabled = true
-                print("Select mode: PaperKit enabled")
+        case .selecting:
+            enableDrawing(false)
+            paperKitView?.isUserInteractionEnabled = true
+            modeInterceptor.isUserInteractionEnabled = true
+            print("Select mode: PaperKit enabled")
 
-            case .idle:
-                enableDrawing(false)
-                paperKitView?.isUserInteractionEnabled = false
-                modeInterceptor.isUserInteractionEnabled = false
-                print("Idle mode: All disabled")
-            }
+        case .idle:
+            enableDrawing(false)
+            paperKitView?.isUserInteractionEnabled = false
+            modeInterceptor.isUserInteractionEnabled = false
+            print("Idle mode: All disabled")
         }
+    }
 
     // MARK: - PaperKit Interaction Auto-Switch
 
@@ -952,12 +816,6 @@ final class UnifiedBoardCanvasController: UIViewController {
     @objc private func handlePaperKitTap(_ gr: UITapGestureRecognizer) {
         guard canvasMode == .drawing, gr.state == .ended else { return }
 
-        let point = gr.location(in: view)
-
-        // Route input based on touch location
-        let region = determineActiveLayer(for: point)
-        routeInputToLayer(region)
-
         guard let paperView = paperKitView else { return }
         let p = gr.location(in: paperView)
         let hit = paperView.hitTest(p, with: nil)
@@ -968,12 +826,6 @@ final class UnifiedBoardCanvasController: UIViewController {
 
     @objc private func handlePaperKitPan(_ gr: UIPanGestureRecognizer) {
         guard canvasMode == .drawing else { return }
-
-        if gr.state == .began {
-            let point = gr.location(in: view)
-            let region = determineActiveLayer(for: point)
-            routeInputToLayer(region)
-        }
 
         guard let paperView = paperKitView else { return }
         let p = gr.location(in: paperView)
@@ -1029,26 +881,21 @@ final class UnifiedBoardCanvasController: UIViewController {
     // MARK: - Tool Picker Management
 
     func showToolPicker() {
-        guard let toolPicker = pencilKitToolPicker else { return }
-        if let activeCanvas = activeDrawingLayer == .pdf ? pdfDrawingCanvas : marginDrawingCanvas {
-            toolPicker.setVisible(true, forFirstResponder: activeCanvas)
-            activeCanvas.becomeFirstResponder()
-        }
+        guard let toolPicker = pencilKitToolPicker,
+              let canvas = pdfDrawingCanvas else { return }
+        toolPicker.setVisible(true, forFirstResponder: canvas)
+        canvas.becomeFirstResponder()
     }
 
     func hideToolPicker() {
-        guard let toolPicker = pencilKitToolPicker else { return }
-        if let pdfCanvas = pdfDrawingCanvas {
-            toolPicker.setVisible(false, forFirstResponder: pdfCanvas)
-        }
-        if let marginCanvas = marginDrawingCanvas {
-            toolPicker.setVisible(false, forFirstResponder: marginCanvas)
-        }
+        guard let toolPicker = pencilKitToolPicker,
+              let canvas = pdfDrawingCanvas else { return }
+        toolPicker.setVisible(false, forFirstResponder: canvas)
     }
 
     /// Get the currently active drawing canvas
     var activeCanvas: PKCanvasView? {
-        return activeDrawingLayer == .pdf ? pdfDrawingCanvas : marginDrawingCanvas
+        return pdfDrawingCanvas
     }
 
     /// Update zoom and rotation from SwiftUI view
@@ -1088,39 +935,28 @@ extension UnifiedBoardCanvasController {
         }
     }
 
-    /// Check if canvas instances are the same before and after operations
+    /// Check canvas instance state
     func verifyCanvasInstances(label: String) {
-        print("\n🔍 [DIAGNOSTIC] CANVAS INSTANCES - \(label)")
+        print("\n🔍 [DIAGNOSTIC] CANVAS INSTANCE - \(label)")
         print("pdfDrawingCanvas instance: \(Unmanaged.passUnretained(pdfDrawingCanvas as AnyObject).toOpaque()) - isHidden: \(pdfDrawingCanvas?.isHidden ?? true)")
-        print("marginDrawingCanvas instance: \(Unmanaged.passUnretained(marginDrawingCanvas as AnyObject).toOpaque()) - isHidden: \(marginDrawingCanvas?.isHidden ?? true)")
-        print("Are they different objects? \(pdfDrawingCanvas !== marginDrawingCanvas)")
         print("")
     }
 
-    /// Inspect all constraints affecting the canvases
+    /// Inspect all constraints affecting the canvas
     func printCanvasConstraints() {
         print("\n🔍 [DIAGNOSTIC] CANVAS CONSTRAINTS")
 
-        if let pdfCanvas = pdfDrawingCanvas {
+        if let canvas = pdfDrawingCanvas {
             print("pdfDrawingCanvas constraints:")
-            for constraint in pdfCanvas.constraints {
+            for constraint in canvas.constraints {
                 print("  - \(constraint)")
             }
         }
 
-        if let marginCanvas = marginDrawingCanvas {
-            print("marginDrawingCanvas constraints:")
-            for constraint in marginCanvas.constraints {
-                print("  - \(constraint)")
-            }
-        }
-
-        print("\ncontainerView constraints affecting canvases:")
+        print("\ncontainerView constraints affecting canvas:")
         for constraint in containerView.constraints {
             if (constraint.firstItem as? UIView) === pdfDrawingCanvas ||
-               (constraint.secondItem as? UIView) === pdfDrawingCanvas ||
-               (constraint.firstItem as? UIView) === marginDrawingCanvas ||
-               (constraint.secondItem as? UIView) === marginDrawingCanvas {
+               (constraint.secondItem as? UIView) === pdfDrawingCanvas {
                 print("  - \(constraint)")
             }
         }
@@ -1131,22 +967,13 @@ extension UnifiedBoardCanvasController {
     func printCanvasDrawingState() {
         print("\n🔍 [DIAGNOSTIC] CANVAS DRAWING STATE")
 
-        if let pdfCanvas = pdfDrawingCanvas {
+        if let canvas = pdfDrawingCanvas {
             print("pdfDrawingCanvas:")
-            print("  - drawing.strokes.count: \(pdfCanvas.drawing.strokes.count)")
-            print("  - drawing.bounds: \(pdfCanvas.drawing.bounds)")
-            print("  - isUserInteractionEnabled: \(pdfCanvas.isUserInteractionEnabled)")
-            print("  - backgroundColor: \(pdfCanvas.backgroundColor as Any)")
-            print("  - alpha: \(pdfCanvas.alpha)")
-        }
-
-        if let marginCanvas = marginDrawingCanvas {
-            print("marginDrawingCanvas:")
-            print("  - drawing.strokes.count: \(marginCanvas.drawing.strokes.count)")
-            print("  - drawing.bounds: \(marginCanvas.drawing.bounds)")
-            print("  - isUserInteractionEnabled: \(marginCanvas.isUserInteractionEnabled)")
-            print("  - backgroundColor: \(marginCanvas.backgroundColor as Any)")
-            print("  - alpha: \(marginCanvas.alpha)")
+            print("  - drawing.strokes.count: \(canvas.drawing.strokes.count)")
+            print("  - drawing.bounds: \(canvas.drawing.bounds)")
+            print("  - isUserInteractionEnabled: \(canvas.isUserInteractionEnabled)")
+            print("  - backgroundColor: \(canvas.backgroundColor as Any)")
+            print("  - alpha: \(canvas.alpha)")
         }
         print("")
     }
@@ -1160,8 +987,6 @@ extension UnifiedBoardCanvasController {
 
             if subview === pdfDrawingCanvas {
                 description += " [pdfDrawingCanvas]"
-            } else if subview === marginDrawingCanvas {
-                description += " [marginDrawingCanvas]"
             } else if subview === paperKitView {
                 description += " [paperKitView]"
             } else if subview === modeInterceptor {
@@ -1177,20 +1002,12 @@ extension UnifiedBoardCanvasController {
     func printTransformStates() {
         print("\n🔍 [DIAGNOSTIC] TRANSFORM STATES")
 
-        print("pdfDrawingCanvas transform:")
-        if let pdfCanvas = pdfDrawingCanvas {
-            print("  - \(pdfCanvas.transform)")
-            print("  - bounds: \(pdfCanvas.bounds)")
-            print("  - frame: \(pdfCanvas.frame)")
-            print("  - center: \(pdfCanvas.center)")
-        }
-
-        print("marginDrawingCanvas transform:")
-        if let marginCanvas = marginDrawingCanvas {
-            print("  - \(marginCanvas.transform)")
-            print("  - bounds: \(marginCanvas.bounds)")
-            print("  - frame: \(marginCanvas.frame)")
-            print("  - center: \(marginCanvas.center)")
+        print("pdfDrawingCanvas:")
+        if let canvas = pdfDrawingCanvas {
+            print("  - transform: \(canvas.transform)")
+            print("  - bounds: \(canvas.bounds)")
+            print("  - frame: \(canvas.frame)")
+            print("  - center: \(canvas.center)")
         }
 
         print("containerView:")
@@ -1226,16 +1043,9 @@ enum PDFAlignment: Equatable {
 // MARK: - PKCanvasViewDelegate
 extension UnifiedBoardCanvasController: PKCanvasViewDelegate {
     func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
-        // Determine which canvas changed and save appropriately
-        if canvasView === pdfDrawingCanvas {
-            guard let transformer = transformer else { return }
-            let normalized = transformer.normalizeDrawingFromCanvasToPDF(canvasView.drawing)
-            pdfAnchoredDrawings[currentPageIndex] = normalized
-            onDrawingChanged?(currentPageIndex, normalized, marginDrawings[currentPageIndex])
-        } else if canvasView === marginDrawingCanvas {
-            marginDrawings[currentPageIndex] = canvasView.drawing
-            onDrawingChanged?(currentPageIndex, pdfAnchoredDrawings[currentPageIndex], canvasView.drawing)
-        }
+        // Single canvas - store drawing directly
+        pdfAnchoredDrawings[currentPageIndex] = canvasView.drawing
+        onDrawingChanged?(currentPageIndex, canvasView.drawing, nil)
     }
 
     func canvasViewDidBeginUsingTool(_ canvasView: PKCanvasView) {
@@ -1243,12 +1053,7 @@ extension UnifiedBoardCanvasController: PKCanvasViewDelegate {
     }
 
     func canvasViewDidEndUsingTool(_ canvasView: PKCanvasView) {
-        // Sync tools between canvases
-        if canvasView === pdfDrawingCanvas, let marginCanvas = marginDrawingCanvas {
-            marginCanvas.tool = canvasView.tool
-        } else if canvasView === marginDrawingCanvas, let pdfCanvas = pdfDrawingCanvas {
-            pdfCanvas.tool = canvasView.tool
-        }
+        // Tool management is simpler with single canvas
     }
 }
 
@@ -1307,7 +1112,6 @@ extension UnifiedBoardCanvasController {
     func setInkTool(_ ink: PKInkingTool.InkType, color: UIColor, width: CGFloat) {
         let tool = PKInkingTool(ink, color: color, width: width)
         pdfDrawingCanvas?.tool = tool
-        marginDrawingCanvas?.tool = tool
         previousTool = tool
         setCanvasMode(.drawing)
         print("🖊️ setInk \(ink) width=\(width)")
@@ -1316,7 +1120,6 @@ extension UnifiedBoardCanvasController {
     func setEraser() {
         let eraser = PKEraserTool(.vector)
         pdfDrawingCanvas?.tool = eraser
-        marginDrawingCanvas?.tool = eraser
         setCanvasMode(.drawing)
     }
 

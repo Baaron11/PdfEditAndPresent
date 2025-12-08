@@ -137,6 +137,7 @@ struct MarginCanvasHelper {
         CGRect(origin: pdfOffset, size: scaledPDFSize)
     }
     
+    
     // MARK: - Coordinate Transformations
     
     func convertDrawingToPDFCoordinate(_ drawingPoint: CGPoint) -> CGPoint? {

@@ -944,13 +944,13 @@ struct PDFEditorScreenRefactored: View {
             ZStack {
                 Color(UIColor.systemGray6)
                     .ignoresSafeArea()
-
+                
                 ZStack(alignment: .topLeading) {
                     PDFPageBackground(
                         pdfManager: pdfManager,
                         currentPageIndex: pdfManager.currentPageIndex
                     )
-
+                    
                     UnifiedBoardCanvasView(
                         editorData: editorData,
                         pdfManager: pdfManager,
@@ -986,7 +986,7 @@ struct PDFEditorScreenRefactored: View {
                 }
                 .scaleEffect(pdfManager.zoomLevel, anchor: .topLeading)
                 .offset(panOffset)
-
+                
                 if canvasMode == .selecting {
                     panGestureOverlay
                 }
@@ -997,7 +997,7 @@ struct PDFEditorScreenRefactored: View {
             }
             .gesture(singlePageZoomGesture)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-
+            
             // Toolbar section - fixed at bottom
             if showDrawingToolbar, let _ = drawingCanvasAdapter {
                 DrawingToolbar(
@@ -1012,12 +1012,12 @@ struct PDFEditorScreenRefactored: View {
                 )
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
-
+        }
             .onChange(of: canvasMode) { _, newMode in
                 if newMode == .selecting {
                     showDrawingToolbar = false
                 }
-            }
+            
         }
     }
 

@@ -511,6 +511,7 @@ final class UnifiedBoardCanvasController: UIViewController {
         )
     }
 
+   
     private func applyTransforms() {
         guard let transformer = transformer else {
             print("🔄 [TRANSFORM] applyTransforms() called but transformer is nil")
@@ -542,119 +543,240 @@ final class UnifiedBoardCanvasController: UIViewController {
         print("🔄 [TRANSFORM]   rotationRadians: \(rotationRadians)")
         print("🔄 [TRANSFORM]   isRotated90or270: \(isRotated90or270)")
 
-        // Frame size after rotation (dimensions swap for 90°/270°)
-        let frameWidth: CGFloat
-        let frameHeight: CGFloat
+        // ✅ Use actual container bounds (set by Auto Layout, not manual)
+        let containerWidth = containerView.bounds.width
+        let containerHeight = containerView.bounds.height
 
-        if isRotated90or270 {
-            frameWidth = expanded.height   // swapped
-            frameHeight = expanded.width   // swapped
-        } else {
-            frameWidth = expanded.width
-            frameHeight = expanded.height
-        }
+        print("🔄 [TRANSFORM]   Container bounds: \(containerWidth) x \(containerHeight)")
 
-        print("🔄 [TRANSFORM]   Frame after rotation: \(frameWidth) x \(frameHeight)")
-
-        // Update container bounds to match rotated expanded canvas dimensions
-        containerView.bounds = CGRect(x: 0, y: 0, width: frameWidth, height: frameHeight)
-
-        // Set bounds and center
+        // Set canvas bounds to expanded size (what we want to draw on)
         canvas.bounds = CGRect(origin: .zero, size: expanded)
-        canvas.center = CGPoint(x: frameWidth / 2, y: frameHeight / 2)
 
-        // Apply rotation
+        // Center canvas in container (this positions it correctly for the visible area)
+        canvas.center = CGPoint(x: containerWidth / 2, y: containerHeight / 2)
+
+        print("🔄 [TRANSFORM]   Canvas bounds set to: \(canvas.bounds)")
+        print("🔄 [TRANSFORM]   Canvas center set to: \(canvas.center)")
+
+        // Apply rotation transform (rotates around the center point)
         let rotationTransform = CGAffineTransform(rotationAngle: rotationRadians)
         canvas.transform = rotationTransform
+        
+        canvas.translatesAutoresizingMaskIntoConstraints = true
 
-        print("🔄 [TRANSFORM]   Canvas transform applied")
+
+        print("🔄 [TRANSFORM]   Rotation transform applied")
+        print("🔄 [TRANSFORM]   Canvas frame after transform: \(canvas.frame)")
 
         // ✅ CRITICAL: Update mask after transforms
         updateCanvasMask()
 
-        print("🔄 [TRANSFORM]   Final containerView.bounds: \(containerView.bounds)")
+        print("🔄 [TRANSFORM]   Mask updated successfully")
+    }
+
+
+    func updateCanvasMask() {
+        guard let canvas = pdfDrawingCanvas else {
+            print("🎭 [MASK] ERROR: pdfDrawingCanvas is nil")
+            return
+        }
+        
+        // Create a mask that covers the ENTIRE canvas (no clipping)
+        let maskLayer = CAShapeLayer()
+        let fullCanvasPath = UIBezierPath(
+            rect: CGRect(origin: .zero, size: canvas.bounds.size)
+        )
+        maskLayer.path = fullCanvasPath.cgPath
+        canvas.layer.mask = maskLayer
+        
+        // Remove old indicator
+        canvas.layer.sublayers?.removeAll { $0.name == "marginIndicator" }
+        
+        // Get the current margin settings
+        let settings = marginSettings  // Direct access, not subscripted
+        
+        // Constants
+        let pageSize = CGSize(width: 612, height: 792)
+        let expansionRatio = 1.0 - settings.minimumMarginScale
+        let pdfOffset = CGPoint(
+            x: pageSize.width * expansionRatio,
+            y: pageSize.height * expansionRatio
+        )
+        
+        var drawableWidth = pageSize.width
+        var drawableHeight = pageSize.height
+        var drawableX = pdfOffset.x
+        var drawableY = pdfOffset.y
+        
+        if settings.isEnabled {
+            // Calculate scaled dimensions using pdfScale from MarginSettings
+            drawableWidth = pageSize.width * settings.pdfScale
+            drawableHeight = pageSize.height * settings.pdfScale
+            
+            // Get anchor position from the enum
+            let (anchorX, anchorY) = anchorToNormalized(settings.anchorPosition)
+            
+            // Calculate position based on anchor
+            let shrinkX = (pageSize.width - drawableWidth) * anchorX
+            let shrinkY = (pageSize.height - drawableHeight) * anchorY
+            
+            drawableX = pdfOffset.x + shrinkX
+            drawableY = pdfOffset.y + shrinkY
+        }
+        
+        let drawableRect = CGRect(x: drawableX, y: drawableY, width: drawableWidth, height: drawableHeight)
+        
+        // Create green border to show drawable area
+        let indicatorLayer = CAShapeLayer()
+        indicatorLayer.name = "marginIndicator"
+        indicatorLayer.path = UIBezierPath(rect: drawableRect).cgPath
+        indicatorLayer.fillColor = UIColor.clear.cgColor
+        indicatorLayer.strokeColor = UIColor.green.cgColor
+        indicatorLayer.lineWidth = 3.0
+        indicatorLayer.zPosition = 1000
+        
+        canvas.layer.addSublayer(indicatorLayer)
+        
+        print("🎭 [MASK] DIAGNOSTIC: Visual indicator (GREEN BORDER)")
+        print("🎭 [MASK]   Canvas frame: \(canvas.frame)")
+        print("🎭 [MASK]   Drawable area: \(drawableRect)")
+        print("🎭 [MASK]   Size: \(drawableWidth) × \(drawableHeight)")
+        print("🎭 [MASK]   Margins enabled: \(settings.isEnabled)")
+        if settings.isEnabled {
+            print("🎭 [MASK]   PDF Scale: \(settings.pdfScale * 100)%")
+            print("🎭 [MASK]   Anchor: \(settings.anchorPosition.rawValue)")
+        }
+    }
+
+    // Helper function to convert AnchorPosition enum to normalized values (0-1)
+    func anchorToNormalized(_ anchor: AnchorPosition) -> (x: CGFloat, y: CGFloat) {
+        let (row, col) = anchor.gridPosition
+        
+        // col: 0=left, 1=center, 2=right
+        // row: 0=top, 1=center, 2=bottom
+        
+        let x = CGFloat(col) * 0.5  // 0, 0.5, 1.0
+        let y = CGFloat(row) * 0.5  // 0, 0.5, 1.0
+        
+        return (x, y)
+    }
+    func parseAnchorString(_ anchor: String) -> (x: CGFloat, y: CGFloat) {
+        // Examples: "TL" = topLeft, "C" = center, "BR" = bottomRight
+        let normalized = anchor.lowercased()
+        
+        let x: CGFloat
+        let y: CGFloat
+        
+        // Parse X position (left, center, right)
+        if normalized.contains("l") {  // left
+            x = 0.0
+        } else if normalized.contains("r") {  // right
+            x = 1.0
+        } else {  // center or default
+            x = 0.5
+        }
+        
+        // Parse Y position (top, center, bottom)
+        if normalized.contains("t") {  // top
+            y = 0.0
+        } else if normalized.contains("b") {  // bottom
+            y = 1.0
+        } else {  // center or default
+            y = 0.5
+        }
+        
+        return (x, y)
     }
 
     /// Update the mask that clips the dynamically-sized canvas to show only valid drawing area
-    private func updateCanvasMask() {
-        print("🎭 [MASK] Updating canvas mask")
-
-        guard let canvas = pdfDrawingCanvas else {
-            print("🎭 [MASK] No canvas to mask")
-            return
-        }
-
-        let settings = marginSettings
-        let pageSize = getCurrentPageSize()  // Get from PDFManager dynamically
-        let offset = pdfOffsetInCanvas       // Automatically calculated from expansion ratio
-        let expanded = expandedCanvasSize    // Dynamically calculated
-        let isRotated90or270 = currentPageRotation == 90 || currentPageRotation == 270
-
-        // TRUE PAGE DIMENSIONS - swap for 90°/270° rotations
-        let truePageWidth: CGFloat = isRotated90or270 ? pageSize.height : pageSize.width
-        let truePageHeight: CGFloat = isRotated90or270 ? pageSize.width : pageSize.height
-
-        // CONTAINER DIMENSIONS - dynamically calculated based on margin settings
-        let containerWidth: CGFloat = isRotated90or270 ? expanded.height : expanded.width
-        let containerHeight: CGFloat = isRotated90or270 ? expanded.width : expanded.height
-
-        print("🎭 [MASK]   Page size: \(pageSize)")
-        print("🎭 [MASK]   Expanded canvas: \(expanded)")
-        print("🎭 [MASK]   Container: \(containerWidth) x \(containerHeight)")
-        print("🎭 [MASK]   PDF offset in canvas: \(offset)")
-        print("🎭 [MASK]   Margins enabled: \(settings.isEnabled)")
-
-        // Create mask if needed
-        if canvas.layer.mask == nil {
-            let maskLayer = CAShapeLayer()
-            maskLayer.fillColor = UIColor.black.cgColor
-            canvas.layer.mask = maskLayer
-            print("🎭 [MASK]   Created new mask layer")
-        }
-
-        guard let maskLayer = canvas.layer.mask as? CAShapeLayer else {
-            print("🎭 [MASK]   ERROR: Could not get mask layer")
-            return
-        }
-
-        // Calculate mask rect based on margins
-        let maskRect: CGRect
-
-        if settings.isEnabled {
-            // MARGINS ENABLED: Scale down the visible area
-            let scaledWidth = truePageWidth * settings.pdfScale
-            let scaledHeight = truePageHeight * settings.pdfScale
-
-            let anchorX = CGFloat(settings.anchorPosition.gridPosition.col) / 2.0  // 0, 0.5, 1.0
-            let anchorY = CGFloat(settings.anchorPosition.gridPosition.row) / 2.0  // 0, 0.5, 1.0
-
-            // Position based on anchor and centering in expanded canvas
-            let offsetX = (containerWidth - scaledWidth) * anchorX
-            let offsetY = (containerHeight - scaledHeight) * anchorY
-
-            maskRect = CGRect(x: offsetX, y: offsetY, width: scaledWidth, height: scaledHeight)
-
-            print("🎭 [MASK]   Margins applied:")
-            print("🎭 [MASK]   - Scale: \(settings.pdfScale * 100)%")
-            print("🎭 [MASK]   - Anchor: \(settings.anchorPosition)")
-            print("🎭 [MASK]   - Mask rect: \(maskRect)")
-        } else {
-            // MARGINS DISABLED: Show full page centered in expanded canvas
-            let offsetX = (containerWidth - truePageWidth) / 2.0
-            let offsetY = (containerHeight - truePageHeight) / 2.0
-
-            maskRect = CGRect(x: offsetX, y: offsetY, width: truePageWidth, height: truePageHeight)
-
-            print("🎭 [MASK]   Margins disabled - showing full page")
-            print("🎭 [MASK]   - Mask rect: \(maskRect)")
-        }
-
-        // Update mask path
-        let maskPath = UIBezierPath(rect: maskRect)
-        maskLayer.path = maskPath.cgPath
-
-        print("🎭 [MASK]   Mask updated successfully")
-    }
+//    private func updateCanvasMask() {
+//        print("🎭 [MASK] Updating canvas mask")
+//
+//        guard let canvas = pdfDrawingCanvas else {
+//            print("🎭 [MASK] No canvas to mask")
+//            return
+//        }
+//
+//        let settings = marginSettings
+//        let pageSize = getCurrentPageSize()  // Get from PDFManager dynamically
+//        let offset = pdfOffsetInCanvas       // Automatically calculated from expansion ratio
+//        let expanded = expandedCanvasSize    // Dynamically calculated
+//        let isRotated90or270 = currentPageRotation == 90 || currentPageRotation == 270
+//
+//        // TRUE PAGE DIMENSIONS - swap for 90°/270° rotations
+//        let truePageWidth: CGFloat = isRotated90or270 ? pageSize.height : pageSize.width
+//        let truePageHeight: CGFloat = isRotated90or270 ? pageSize.width : pageSize.height
+//
+//        // CONTAINER DIMENSIONS - dynamically calculated based on margin settings
+//        let containerWidth: CGFloat = isRotated90or270 ? expanded.height : expanded.width
+//        let containerHeight: CGFloat = isRotated90or270 ? expanded.width : expanded.height
+//
+//        print("🎭 [MASK]   Page size: \(pageSize)")
+//        print("🎭 [MASK]   Expanded canvas: \(expanded)")
+//        print("🎭 [MASK]   Container: \(containerWidth) x \(containerHeight)")
+//        print("🎭 [MASK]   PDF offset in canvas: \(offset)")
+//        print("🎭 [MASK]   Margins enabled: \(settings.isEnabled)")
+//
+//        // Create mask if needed
+//        if canvas.layer.mask == nil {
+//            let maskLayer = CAShapeLayer()
+//            maskLayer.fillColor = UIColor.black.cgColor
+//            canvas.layer.mask = maskLayer
+//            print("🎭 [MASK]   Created new mask layer")
+//        }
+//
+//        guard let maskLayer = canvas.layer.mask as? CAShapeLayer else {
+//            print("🎭 [MASK]   ERROR: Could not get mask layer")
+//            return
+//        }
+//
+//        // Calculate mask rect based on margins
+//        let maskRect: CGRect
+//        
+//        if settings.isEnabled {
+//                    // MARGINS ENABLED: Scale down the visible area
+//                    let scaledWidth = truePageWidth * settings.pdfScale
+//                    let scaledHeight = truePageHeight * settings.pdfScale
+//
+//                    let anchorX = CGFloat(settings.anchorPosition.gridPosition.col) / 2.0  // 0, 0.5, 1.0
+//                    let anchorY = CGFloat(settings.anchorPosition.gridPosition.row) / 2.0  // 0, 0.5, 1.0
+//
+//                    // Calculate shrink amount based on anchor position
+//                    // (how much the PDF shrinks on each side based on where the anchor is)
+//                    let shrinkX = (truePageWidth - scaledWidth) * anchorX
+//                    let shrinkY = (truePageHeight - scaledHeight) * anchorY
+//
+//                    // Mask position = PDF offset in canvas + shrink amount
+//                    // This ensures the mask is positioned correctly relative to the PDF
+//                    let maskX = offset.x + shrinkX
+//                    let maskY = offset.y + shrinkY
+//
+//                    maskRect = CGRect(x: maskX, y: maskY, width: scaledWidth, height: scaledHeight)
+//
+//                    print("🎭 [MASK]   Margins applied:")
+//                    print("🎭 [MASK]   - Scale: \(settings.pdfScale * 100)%")
+//                    print("🎭 [MASK]   - Anchor: \(settings.anchorPosition)")
+//                    print("🎭 [MASK]   - PDF offset: \(offset)")
+//                    print("🎭 [MASK]   - Shrink amount: (\(shrinkX), \(shrinkY))")
+//                    print("🎭 [MASK]   - Mask rect: \(maskRect)")
+//                }
+// else {
+//            // MARGINS DISABLED: Show full page centered in expanded canvas
+//            let offsetX = (containerWidth - truePageWidth) / 2.0
+//            let offsetY = (containerHeight - truePageHeight) / 2.0
+//
+//            maskRect = CGRect(x: offsetX, y: offsetY, width: truePageWidth, height: truePageHeight)
+//
+//            print("🎭 [MASK]   Margins disabled - showing full page")
+//            print("🎭 [MASK]   - Mask rect: \(maskRect)")
+//        }
+//
+//        // Update mask path
+//        let maskPath = UIBezierPath(rect: maskRect)
+//        maskLayer.path = maskPath.cgPath
+//
+//        print("🎭 [MASK]   Mask updated successfully")
+//    }
 
     private func reconfigureCanvasConstraints() {
         guard let canvas = pdfDrawingCanvas else { return }

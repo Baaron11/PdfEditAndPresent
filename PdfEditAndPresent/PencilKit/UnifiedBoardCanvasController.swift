@@ -71,6 +71,9 @@ final class UnifiedBoardCanvasController: UIViewController {
     private var currentZoomLevel: CGFloat = 1.0
     private var currentPageRotation: Int = 0
 
+    /// Tracks the current dynamic canvas size (updated when pdfScale changes)
+    var currentCanvasExpansion: CGSize = .zero
+
     // MARK: - Dynamic Canvas Size Helpers
 
     /// Get the current page size from PDFManager
@@ -97,31 +100,110 @@ final class UnifiedBoardCanvasController: UIViewController {
     }
 
     /// Calculate oversized canvas size based on current page and margin settings
+    /// Canvas size = baseCanvasSize × pdfScale
+    /// When pdfScale changes (e.g., 100% → 80%), canvas shrinks proportionally
     private var expandedCanvasSize: CGSize {
         let pageSize = getCurrentPageSize()
         let expansionRatio = getMarginExpansionRatio()
 
-        let horizontalMargin = pageSize.width * expansionRatio
-        let verticalMargin = pageSize.height * expansionRatio
+        // Base canvas size (at 100% pdfScale)
+        let baseWidth = pageSize.width + (pageSize.width * expansionRatio * 2)
+        let baseHeight = pageSize.height + (pageSize.height * expansionRatio * 2)
 
-        let width = pageSize.width + (horizontalMargin * 2)
-        let height = pageSize.height + (verticalMargin * 2)
+        // Scale canvas by pdfScale - this is the key change for dynamic sizing
+        let scaleFactor = marginSettings.pdfScale
+        let dynamicWidth = baseWidth * scaleFactor
+        let dynamicHeight = baseHeight * scaleFactor
 
         print("📐 [SIZE] Page: \(pageSize)")
-        print("📐 [SIZE] Expanded canvas: \(width) × \(height)")
+        print("📐 [SIZE] Base canvas (100%): \(baseWidth) × \(baseHeight)")
+        print("📐 [SIZE] PDF Scale: \(scaleFactor * 100)%")
+        print("📐 [SIZE] Dynamic canvas: \(dynamicWidth) × \(dynamicHeight)")
 
-        return CGSize(width: width, height: height)
+        return CGSize(width: dynamicWidth, height: dynamicHeight)
     }
 
-    /// Calculate where PDF sits within the expanded canvas
+    /// Calculate dynamic canvas size for a specific page size (used by onMarginSettingsChanged)
+    func calculateDynamicCanvasSize(for pageSize: CGSize) -> CGSize {
+        let settings = marginSettings
+        let minimumMarginPercent = settings.minimumMarginScale
+        let expansionRatio = 1.0 - minimumMarginPercent  // e.g., 0.9
+
+        // Base canvas size (at 100% pdfScale)
+        let baseCanvasWidth = pageSize.width + (pageSize.width * expansionRatio * 2)
+        let baseCanvasHeight = pageSize.height + (pageSize.height * expansionRatio * 2)
+
+        // Scale the canvas by the current pdfScale
+        let scaleFactor = settings.pdfScale  // 0.8, 0.5, etc.
+
+        let dynamicWidth = baseCanvasWidth * scaleFactor
+        let dynamicHeight = baseCanvasHeight * scaleFactor
+
+        return CGSize(width: dynamicWidth, height: dynamicHeight)
+    }
+
+    /// Calculate where PDF sits within the expanded canvas (scaled by pdfScale)
     private var pdfOffsetInCanvas: CGPoint {
         let pageSize = getCurrentPageSize()
         let expansionRatio = getMarginExpansionRatio()
+        let scaleFactor = marginSettings.pdfScale
 
-        let xOffset = pageSize.width * expansionRatio
-        let yOffset = pageSize.height * expansionRatio
+        // Scale the offset by pdfScale to match the dynamic canvas size
+        let xOffset = pageSize.width * expansionRatio * scaleFactor
+        let yOffset = pageSize.height * expansionRatio * scaleFactor
 
         return CGPoint(x: xOffset, y: yOffset)
+    }
+
+    // MARK: - Dynamic Canvas Sizing
+
+    /// Called when margin settings change to resize canvas dynamically
+    func onMarginSettingsChanged() {
+        let pageSize = getCurrentPageSize()
+        let newCanvasSize = calculateDynamicCanvasSize(for: pageSize)
+
+        // Store the current expansion size
+        currentCanvasExpansion = newCanvasSize
+
+        print("🎯 [CANVAS] Dynamic size calculated")
+        print("🎯 [CANVAS]   PDF Scale: \(marginSettings.pdfScale * 100)%")
+        print("🎯 [CANVAS]   Page size: \(pageSize)")
+        print("🎯 [CANVAS]   New canvas size: \(newCanvasSize)")
+
+        // Update canvas constraints with new dynamic size
+        if let canvas = pdfDrawingCanvas {
+            // Remove old width/height constraints
+            canvas.constraints.forEach { constraint in
+                if constraint.firstAttribute == .width || constraint.firstAttribute == .height {
+                    constraint.isActive = false
+                }
+            }
+
+            // Also check parent constraints
+            if let superview = canvas.superview {
+                superview.constraints.forEach { constraint in
+                    let isCanvasWidth = (constraint.firstItem as? UIView) === canvas && constraint.firstAttribute == .width
+                    let isCanvasHeight = (constraint.firstItem as? UIView) === canvas && constraint.firstAttribute == .height
+                    if isCanvasWidth || isCanvasHeight {
+                        constraint.isActive = false
+                    }
+                }
+            }
+
+            // Add new constraints with dynamic size
+            NSLayoutConstraint.activate([
+                canvas.widthAnchor.constraint(equalToConstant: newCanvasSize.width),
+                canvas.heightAnchor.constraint(equalToConstant: newCanvasSize.height)
+            ])
+
+            print("🎯 [CANVAS]   Constraints updated to: \(newCanvasSize.width) × \(newCanvasSize.height)")
+        }
+
+        // Re-apply transforms to position canvas correctly
+        applyTransforms()
+
+        // Update visual indicator (green border)
+        updateCanvasMask()
     }
 
     // MARK: - Initialization
@@ -421,6 +503,7 @@ final class UnifiedBoardCanvasController: UIViewController {
     }
 
     /// Update margin settings and reapply transforms
+    /// This is the main entry point when margin settings change from SwiftUI
     func updateMarginSettings(_ settings: MarginSettings) {
         print("📐 [SETTINGS] Margin settings updated")
         print("📐 [SETTINGS]   Enabled: \(settings.isEnabled)")
@@ -434,12 +517,15 @@ final class UnifiedBoardCanvasController: UIViewController {
         // If minimum scale changed, expansion ratio changes
         let newExpansion = getMarginExpansionRatio()
         print("📐 [SETTINGS]   Expansion ratio: \(newExpansion * 100)%")
-        print("📐 [SETTINGS]   Expanded canvas: \(expandedCanvasSize)")
+        print("📐 [SETTINGS]   Dynamic canvas size: \(expandedCanvasSize)")
 
-        // Update mask when margins change
-        updateCanvasMask()
-
-        applyTransforms()
+        // ✅ KEY CHANGE: Call onMarginSettingsChanged() for dynamic canvas sizing
+        // This handles:
+        // 1. Calculating new canvas size based on pdfScale
+        // 2. Updating canvas constraints
+        // 3. Re-applying transforms
+        // 4. Updating visual indicator (green border)
+        onMarginSettingsChanged()
     }
 
     /// Set current page index and load drawings
@@ -511,7 +597,7 @@ final class UnifiedBoardCanvasController: UIViewController {
         )
     }
 
-   
+
     private func applyTransforms() {
         guard let transformer = transformer else {
             print("🔄 [TRANSFORM] applyTransforms() called but transformer is nil")
@@ -524,11 +610,16 @@ final class UnifiedBoardCanvasController: UIViewController {
         }
 
         let pageSize = getCurrentPageSize()
-        let expanded = expandedCanvasSize
+
+        // Use currentCanvasExpansion if valid, otherwise calculate dynamically
+        let canvasSize = currentCanvasExpansion.width > 0
+            ? currentCanvasExpansion
+            : calculateDynamicCanvasSize(for: pageSize)
 
         print("🔄 [TRANSFORM] applyTransforms() called")
         print("🔄 [TRANSFORM]   Page size: \(pageSize.width) x \(pageSize.height)")
-        print("🔄 [TRANSFORM]   Expanded canvas: \(expanded.width) x \(expanded.height)")
+        print("🔄 [TRANSFORM]   PDF Scale: \(marginSettings.pdfScale * 100)%")
+        print("🔄 [TRANSFORM]   Dynamic canvas: \(canvasSize.width) x \(canvasSize.height)")
         print("🔄 [TRANSFORM]   Rotation: \(currentPageRotation)°")
         print("🔄 [TRANSFORM]   containerView.bounds: \(containerView.bounds)")
 
@@ -549,8 +640,15 @@ final class UnifiedBoardCanvasController: UIViewController {
 
         print("🔄 [TRANSFORM]   Container bounds: \(containerWidth) x \(containerHeight)")
 
-        // Set canvas bounds to expanded size (what we want to draw on)
-        canvas.bounds = CGRect(origin: .zero, size: expanded)
+        // Swap dimensions if rotated 90/270 degrees
+        let (finalWidth, finalHeight) = isRotated90or270
+            ? (canvasSize.height, canvasSize.width)
+            : (canvasSize.width, canvasSize.height)
+
+        print("🔄 [TRANSFORM]   Final canvas size (after rotation swap): \(finalWidth) x \(finalHeight)")
+
+        // Set canvas bounds to dynamic size (what we want to draw on)
+        canvas.bounds = CGRect(origin: .zero, size: CGSize(width: finalWidth, height: finalHeight))
 
         // Center canvas in container (this positions it correctly for the visible area)
         canvas.center = CGPoint(x: containerWidth / 2, y: containerHeight / 2)
@@ -561,9 +659,8 @@ final class UnifiedBoardCanvasController: UIViewController {
         // Apply rotation transform (rotates around the center point)
         let rotationTransform = CGAffineTransform(rotationAngle: rotationRadians)
         canvas.transform = rotationTransform
-        
-        canvas.translatesAutoresizingMaskIntoConstraints = true
 
+        canvas.translatesAutoresizingMaskIntoConstraints = true
 
         print("🔄 [TRANSFORM]   Rotation transform applied")
         print("🔄 [TRANSFORM]   Canvas frame after transform: \(canvas.frame)")
@@ -580,52 +677,59 @@ final class UnifiedBoardCanvasController: UIViewController {
             print("🎭 [MASK] ERROR: pdfDrawingCanvas is nil")
             return
         }
-        
-        // Create a mask that covers the ENTIRE canvas (no clipping)
+
+        // Create a mask that covers the ENTIRE current canvas (no clipping)
         let maskLayer = CAShapeLayer()
         let fullCanvasPath = UIBezierPath(
             rect: CGRect(origin: .zero, size: canvas.bounds.size)
         )
         maskLayer.path = fullCanvasPath.cgPath
         canvas.layer.mask = maskLayer
-        
+
         // Remove old indicator
         canvas.layer.sublayers?.removeAll { $0.name == "marginIndicator" }
-        
+
         // Get the current margin settings
-        let settings = marginSettings  // Direct access, not subscripted
-        
-        // Constants
-        let pageSize = CGSize(width: 612, height: 792)
-        let expansionRatio = 1.0 - settings.minimumMarginScale
-        let pdfOffset = CGPoint(
-            x: pageSize.width * expansionRatio,
-            y: pageSize.height * expansionRatio
-        )
-        
-        var drawableWidth = pageSize.width
-        var drawableHeight = pageSize.height
-        var drawableX = pdfOffset.x
-        var drawableY = pdfOffset.y
-        
+        let settings = marginSettings
+
+        // Page size and expansion calculations
+        let pageSize = getCurrentPageSize()
+        let minimumMarginPercent = settings.minimumMarginScale
+        let expansionRatio = 1.0 - minimumMarginPercent
+
+        // ✅ KEY CHANGE: Scale ALL coordinates by pdfScale
+        // This makes the green border shrink/grow with the canvas
+        let scaleFactor = settings.pdfScale
+
+        // Scale the PDF offset by pdfScale
+        let scaledPDFOffsetX = pageSize.width * expansionRatio * scaleFactor
+        let scaledPDFOffsetY = pageSize.height * expansionRatio * scaleFactor
+        let scaledPDFOffset = CGPoint(x: scaledPDFOffsetX, y: scaledPDFOffsetY)
+
+        // Calculate scaled page dimensions
+        let scaledPageWidth = pageSize.width * scaleFactor
+        let scaledPageHeight = pageSize.height * scaleFactor
+
+        var drawableWidth = scaledPageWidth
+        var drawableHeight = scaledPageHeight
+        var drawableX = scaledPDFOffset.x
+        var drawableY = scaledPDFOffset.y
+
         if settings.isEnabled {
-            // Calculate scaled dimensions using pdfScale from MarginSettings
-            drawableWidth = pageSize.width * settings.pdfScale
-            drawableHeight = pageSize.height * settings.pdfScale
-            
             // Get anchor position from the enum
             let (anchorX, anchorY) = anchorToNormalized(settings.anchorPosition)
-            
-            // Calculate position based on anchor
-            let shrinkX = (pageSize.width - drawableWidth) * anchorX
-            let shrinkY = (pageSize.height - drawableHeight) * anchorY
-            
-            drawableX = pdfOffset.x + shrinkX
-            drawableY = pdfOffset.y + shrinkY
+
+            // When margins enabled, the PDF is already scaled by pdfScale
+            // Anchor affects position within the scaled canvas
+            let shrinkX = (scaledPageWidth - scaledPageWidth) * anchorX
+            let shrinkY = (scaledPageHeight - scaledPageHeight) * anchorY
+
+            drawableX = scaledPDFOffset.x + shrinkX
+            drawableY = scaledPDFOffset.y + shrinkY
         }
-        
+
         let drawableRect = CGRect(x: drawableX, y: drawableY, width: drawableWidth, height: drawableHeight)
-        
+
         // Create green border to show drawable area
         let indicatorLayer = CAShapeLayer()
         indicatorLayer.name = "marginIndicator"
@@ -634,16 +738,17 @@ final class UnifiedBoardCanvasController: UIViewController {
         indicatorLayer.strokeColor = UIColor.green.cgColor
         indicatorLayer.lineWidth = 3.0
         indicatorLayer.zPosition = 1000
-        
+
         canvas.layer.addSublayer(indicatorLayer)
-        
-        print("🎭 [MASK] DIAGNOSTIC: Visual indicator (GREEN BORDER)")
-        print("🎭 [MASK]   Canvas frame: \(canvas.frame)")
+
+        print("🎭 [MASK] DYNAMIC: Canvas scaled with green border")
+        print("🎭 [MASK]   Canvas bounds: \(canvas.bounds)")
+        print("🎭 [MASK]   PDF Scale: \(scaleFactor * 100)%")
+        print("🎭 [MASK]   Scaled PDF offset: \(scaledPDFOffset)")
         print("🎭 [MASK]   Drawable area: \(drawableRect)")
         print("🎭 [MASK]   Size: \(drawableWidth) × \(drawableHeight)")
         print("🎭 [MASK]   Margins enabled: \(settings.isEnabled)")
         if settings.isEnabled {
-            print("🎭 [MASK]   PDF Scale: \(settings.pdfScale * 100)%")
             print("🎭 [MASK]   Anchor: \(settings.anchorPosition.rawValue)")
         }
     }

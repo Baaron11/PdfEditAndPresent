@@ -170,52 +170,45 @@ final class UnifiedBoardCanvasController: UIViewController {
     // MARK: - Dynamic Canvas Sizing
 
     /// Called when margin settings change to resize canvas dynamically
+    /// This is the key method that handles canvas resizing when pdfScale changes
     func onMarginSettingsChanged() {
+        print("📡 [CALLBACK] onMarginSettingsChanged() triggered")
+
         let pageSize = getCurrentPageSize()
         let newCanvasSize = calculateDynamicCanvasSize(for: pageSize)
 
-        // Store the current expansion size
+        // Store the current expansion size - this is used by applyTransforms()
         currentCanvasExpansion = newCanvasSize
 
-        print("🎯 [CANVAS] Dynamic size calculated")
-        print("🎯 [CANVAS]   PDF Scale: \(marginSettings.pdfScale * 100)%")
-        print("🎯 [CANVAS]   Page size: \(pageSize)")
-        print("🎯 [CANVAS]   New canvas size: \(newCanvasSize)")
+        print("🎯 [MARGIN] onMarginSettingsChanged() called - updating canvas for margin changes")
+        print("🎯 [MARGIN]   Margins enabled: \(marginSettings.isEnabled)")
+        print("🎯 [MARGIN]   PDF Scale: \(marginSettings.pdfScale * 100)%")
+        print("🎯 [MARGIN]   Page size: \(pageSize)")
+        print("📐 [MARGIN] New canvas size: \(newCanvasSize.width) × \(newCanvasSize.height)")
 
-        // Update canvas constraints with new dynamic size
-        if let canvas = pdfDrawingCanvas {
-            // Remove old width/height constraints
-            canvas.constraints.forEach { constraint in
-                if constraint.firstAttribute == .width || constraint.firstAttribute == .height {
-                    constraint.isActive = false
-                }
-            }
-
-            // Also check parent constraints
-            if let superview = canvas.superview {
-                superview.constraints.forEach { constraint in
-                    let isCanvasWidth = (constraint.firstItem as? UIView) === canvas && constraint.firstAttribute == .width
-                    let isCanvasHeight = (constraint.firstItem as? UIView) === canvas && constraint.firstAttribute == .height
-                    if isCanvasWidth || isCanvasHeight {
-                        constraint.isActive = false
-                    }
-                }
-            }
-
-            // Add new constraints with dynamic size
-            NSLayoutConstraint.activate([
-                canvas.widthAnchor.constraint(equalToConstant: newCanvasSize.width),
-                canvas.heightAnchor.constraint(equalToConstant: newCanvasSize.height)
-            ])
-
-            print("🎯 [CANVAS]   Constraints updated to: \(newCanvasSize.width) × \(newCanvasSize.height)")
+        guard let canvas = pdfDrawingCanvas else {
+            print("⚠️ [MARGIN] No canvas to update")
+            return
         }
 
-        // Re-apply transforms to position canvas correctly
+        // ✅ KEY: applyTransforms() will use currentCanvasExpansion to set canvas.bounds
+        // This directly sets the visual size of the canvas
+        print("🔄 [MARGIN] Re-applying transforms with new size...")
         applyTransforms()
 
-        // Update visual indicator (green border)
+        // Update visual indicator (green border) - now uses dynamic values
+        print("🎭 [MARGIN] Updating canvas mask (green border)...")
         updateCanvasMask()
+
+        // Force layout update to ensure changes are applied immediately
+        canvas.setNeedsLayout()
+        canvas.layoutIfNeeded()
+        containerView.setNeedsLayout()
+        containerView.layoutIfNeeded()
+
+        print("✅ [MARGIN] Canvas updated - should now shrink/expand on screen")
+        print("✅ [MARGIN]   Canvas frame: \(canvas.frame)")
+        print("✅ [MARGIN]   Canvas bounds: \(canvas.bounds)")
     }
 
     // MARK: - Initialization
@@ -738,7 +731,7 @@ final class UnifiedBoardCanvasController: UIViewController {
             print("🎭 [MASK] ERROR: pdfDrawingCanvas is nil")
             return
         }
-        
+
         // Create a mask that covers the ENTIRE canvas (no clipping)
         let maskLayer = CAShapeLayer()
         let fullCanvasPath = UIBezierPath(
@@ -746,57 +739,64 @@ final class UnifiedBoardCanvasController: UIViewController {
         )
         maskLayer.path = fullCanvasPath.cgPath
         canvas.layer.mask = maskLayer
-        
+
         // Remove old indicator
         canvas.layer.sublayers?.forEach { layer in
             if let namedLayer = layer as? CAShapeLayer, namedLayer.name == "marginIndicator" {
                 namedLayer.removeFromSuperlayer()
             }
         }
-        
-        // Get settings
+
+        // ✅ FIXED: Use dynamic values instead of hardcoded
         let settings = marginSettings
-        let pageSize = CGSize(width: 612, height: 792)
-        let expansionRatio = 0.9
-        
-        // Calculate drawable area
-        let scaledPDFOffsetX = pageSize.width * expansionRatio * settings.pdfScale
-        let scaledPDFOffsetY = pageSize.height * expansionRatio * settings.pdfScale
-        let scaledPageWidth = pageSize.width * settings.pdfScale
-        let scaledPageHeight = pageSize.height * settings.pdfScale
-        
+        let pageSize = getCurrentPageSize()  // Dynamic page size from PDFManager
+        let expansionRatio = getMarginExpansionRatio()  // Dynamic expansion ratio based on minimumMarginScale
+
+        print("🎭 [MASK] Using dynamic values:")
+        print("🎭 [MASK]   Page size: \(pageSize)")
+        print("🎭 [MASK]   Expansion ratio: \(expansionRatio)")
+        print("🎭 [MASK]   PDF Scale: \(settings.pdfScale * 100)%")
+        print("🎭 [MASK]   Margins enabled: \(settings.isEnabled)")
+
+        // Calculate drawable area with dynamic values
+        let effectiveScale = settings.isEnabled ? settings.pdfScale : 1.0
+        let scaledPDFOffsetX = pageSize.width * expansionRatio * effectiveScale
+        let scaledPDFOffsetY = pageSize.height * expansionRatio * effectiveScale
+        let scaledPageWidth = pageSize.width * effectiveScale
+        let scaledPageHeight = pageSize.height * effectiveScale
+
         let drawableRect = CGRect(
             x: scaledPDFOffsetX,
             y: scaledPDFOffsetY,
             width: scaledPageWidth,
             height: scaledPageHeight
         )
-        
+
         print("🎭 [MASK] Creating indicator with rect: \(drawableRect)")
-        
+
         // Create NEW indicator layer
         let indicatorLayer = CAShapeLayer()
         indicatorLayer.name = "marginIndicator"
-        
-        // KEY FIX: Set bounds and position so layer is actually visible
-        // Bounds must be the size of the drawable area
+
+        // Set bounds and position so layer is visible
+        // Bounds is the size of the drawable area
         indicatorLayer.bounds = CGRect(origin: .zero, size: drawableRect.size)
-        // Position must be the top-left corner of the drawable area
+        // Position is the center of the drawable area
         indicatorLayer.position = CGPoint(x: drawableRect.midX, y: drawableRect.midY)
-        
+
         // Path is in the layer's coordinate system (0,0 to size)
         let pathRect = CGRect(origin: .zero, size: drawableRect.size)
         indicatorLayer.path = UIBezierPath(rect: pathRect).cgPath
-        
+
         indicatorLayer.fillColor = UIColor.clear.cgColor
         indicatorLayer.strokeColor = UIColor.green.cgColor
         indicatorLayer.lineWidth = 4.0
         indicatorLayer.lineDashPattern = [8, 4]
         indicatorLayer.zPosition = 1000
-        
+
         // Add to canvas
         canvas.layer.addSublayer(indicatorLayer)
-        
+
         print("🎭 [MASK] ✅ Green border updated")
         print("🎭 [MASK]   Bounds: \(indicatorLayer.bounds)")
         print("🎭 [MASK]   Position: \(indicatorLayer.position)")

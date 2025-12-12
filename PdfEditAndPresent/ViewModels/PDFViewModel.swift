@@ -54,21 +54,16 @@ class PDFViewModel: ObservableObject {
     func setupPDFManager(_ manager: PDFManager) {
         self.pdfManager = manager
         
-        // ✅ Wire up document changes (page reordering, adding/deleting pages, inserting PDFs)
         manager.onDocumentChanged = { [weak self] in
             self?.hasUnsavedChanges = true
-            
-            // ✅ CRITICAL: Keep currentDocument in sync with pdfManager's updated document
             self?.currentDocument = manager.pdfDocument
-            
             print("📝 Document changed - unsaved changes flag set to true")
-            print("📄 Updated currentDocument to latest version from PDFManager")
         }
         
-        // ✅ Wire up margin settings changes
         manager.onMarginSettingsChanged = { [weak self] in
             self?.hasUnsavedChanges = true
             print("📐 Margin settings changed - unsaved changes flag set to true")
+            // ✅ Don't need to call canvas controller here
         }
     }
     

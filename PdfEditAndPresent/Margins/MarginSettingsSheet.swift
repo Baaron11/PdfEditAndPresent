@@ -40,6 +40,8 @@ struct MarginSettingsSheet: View {
                             anchorPosition = .topLeft
                             pdfScale = 0.8
                         }
+                        // ✅ KEY CHANGE: Update canvas immediately when toggling
+                        updateCanvasForCurrentSettings()
                     }
             }
             .padding(.horizontal, 20)
@@ -69,7 +71,11 @@ struct MarginSettingsSheet: View {
                                             }
                                             
                                             if let position = position {
-                                                Button(action: { anchorPosition = position }) {
+                                                Button(action: {
+                                                    anchorPosition = position
+                                                    // ✅ KEY CHANGE: Update canvas when anchor changes
+                                                    updateCanvasForCurrentSettings()
+                                                }) {
                                                     Image(systemName: position.symbolName)
                                                         .font(.system(size: 14))
                                                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -106,6 +112,10 @@ struct MarginSettingsSheet: View {
                             
                             Slider(value: $pdfScale, in: 0.1...1.0, step: 0.05)
                                 .tint(.blue)
+                                // ✅ KEY CHANGE: Update canvas as user drags slider
+                                .onChange(of: pdfScale) { oldValue, newValue in
+                                    updateCanvasForCurrentSettings()
+                                }
                         }
                         
                         // Apply To
@@ -250,6 +260,19 @@ struct MarginSettingsSheet: View {
                     .position(x: x + width / 2, y: y + height / 2)
             }
         }
+    }
+    
+    // ✅ NEW: Updates canvas in real-time as user adjusts controls
+    private func updateCanvasForCurrentSettings() {
+        let tempSettings = MarginSettings(
+            isEnabled: isEnabled,
+            anchorPosition: anchorPosition,
+            pdfScale: pdfScale,
+            appliedToAllPages: false
+        )
+        // Apply to current page without saving as "final" yet
+        // This triggers onMarginSettingsChanged callback for live preview
+        pdfManager.applyMarginSettingsToCurrentPageWithTracking(tempSettings)
     }
     
     private func applySettings() {

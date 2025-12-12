@@ -840,6 +840,13 @@ extension PDFManager {
     }
     
     func loadMarginSettings() {
+        // ✅ FIX: Only load saved settings for actual saved files
+        // Don't load settings for temporary/unsaved documents
+        guard let url = pdfDocument?.documentURL else {
+            print("ℹ️ No document URL - using default margin settings")
+            return
+        }
+        
         let key = getMarginSettingsKey()
         
         guard let data = UserDefaults.standard.data(forKey: key) else {

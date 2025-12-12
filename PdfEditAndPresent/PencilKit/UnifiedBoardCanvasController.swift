@@ -66,7 +66,15 @@ final class UnifiedBoardCanvasController: UIViewController {
     private var previousTool: PKTool?
 
     // PDFManager reference for querying page sizes
-    weak var pdfManager: PDFManager?
+    weak var pdfManager: PDFManager? {
+        didSet {
+            // ✅ NEW: When pdfManager is set, automatically set up the margin callback
+            if let pdfManager = pdfManager {
+                setupMarginSettingsCallback(with: pdfManager)
+                print("✅ Margin settings callback wired up to pdfManager")
+            }
+        }
+    }
 
     private var currentZoomLevel: CGFloat = 1.0
     private var currentPageRotation: Int = 0
@@ -127,21 +135,25 @@ final class UnifiedBoardCanvasController: UIViewController {
     func calculateDynamicCanvasSize(for pageSize: CGSize) -> CGSize {
         let settings = marginSettings
         let minimumMarginPercent = settings.minimumMarginScale
-        let expansionRatio = 1.0 - minimumMarginPercent  // e.g., 0.9
+        let expansionRatio = 1.0 - minimumMarginPercent
 
-        // Base canvas size (at 100% pdfScale)
         let baseCanvasWidth = pageSize.width + (pageSize.width * expansionRatio * 2)
         let baseCanvasHeight = pageSize.height + (pageSize.height * expansionRatio * 2)
 
-        // Scale the canvas by the current pdfScale
-        let scaleFactor = settings.pdfScale  // 0.8, 0.5, etc.
+        // ✅ CORRECT: Use settings.isEnabled and settings.pdfScale
+        let effectiveScale = settings.isEnabled ? settings.pdfScale : 1.0
 
-        let dynamicWidth = baseCanvasWidth * scaleFactor
-        let dynamicHeight = baseCanvasHeight * scaleFactor
+        let dynamicWidth = baseCanvasWidth * effectiveScale
+        let dynamicHeight = baseCanvasHeight * effectiveScale
+
+        print("🎯 [CANVAS] Dynamic size calculated")
+        print("🎯 [CANVAS]   Margin Enabled: \(settings.isEnabled)")
+        print("🎯 [CANVAS]   PDF Scale: \(String(format: "%.1f", settings.pdfScale * 100))%")
+        print("🎯 [CANVAS]   Effective Scale: \(String(format: "%.1f", effectiveScale * 100))%")
+        print("🎯 [CANVAS]   New canvas size: (\(dynamicWidth), \(dynamicHeight))")
 
         return CGSize(width: dynamicWidth, height: dynamicHeight)
     }
-
     /// Calculate where PDF sits within the expanded canvas (scaled by pdfScale)
     private var pdfOffsetInCanvas: CGPoint {
         let pageSize = getCurrentPageSize()
@@ -424,6 +436,13 @@ final class UnifiedBoardCanvasController: UIViewController {
         print("PaperKit setup complete")
     }
 
+    func setupMarginSettingsCallback(with pdfManager: PDFManager) {
+        // ✅ When margin settings change, update the canvas
+        pdfManager.onMarginSettingsChanged = { [weak self] in
+            self?.onMarginSettingsChanged()
+        }
+    }
+    
     /// Setup single oversized PencilKit canvas
     func setupPencilKit() {
         print("🎛️ [LIFECYCLE] setupPencilKit() called")
@@ -672,125 +691,116 @@ final class UnifiedBoardCanvasController: UIViewController {
     }
 
 
+    func debugGreenBorder() {
+        guard let canvas = pdfDrawingCanvas else {
+            print("❌ [DEBUG] Canvas is nil")
+            return
+        }
+        
+        print("\n📍 [DEBUG GREEN BORDER]")
+        print("📍 Canvas layer sublayers count: \(canvas.layer.sublayers?.count ?? 0)")
+        
+        // Find the indicator layer
+        if let indicatorLayer = canvas.layer.sublayers?.first(where: { $0.name == "marginIndicator" }) {
+            print("✅ Found margin indicator layer")
+            print("   - Position: \(indicatorLayer.position)")
+            print("   - Bounds: \(indicatorLayer.bounds)")
+            print("   - Frame: \(indicatorLayer.frame)")
+            print("   - Path bounds: \((indicatorLayer as? CAShapeLayer)?.path?.boundingBox ?? .zero)")
+            print("   - Fill color: \((indicatorLayer as? CAShapeLayer)?.fillColor ?? UIColor.clear.cgColor)")
+            print("   - Stroke color: \((indicatorLayer as? CAShapeLayer)?.strokeColor ?? UIColor.clear.cgColor)")
+            print("   - Line width: \((indicatorLayer as? CAShapeLayer)?.lineWidth ?? 0)")
+            print("   - Is hidden: \(indicatorLayer.isHidden)")
+            print("   - Opacity: \(indicatorLayer.opacity)")
+            print("   - Z position: \(indicatorLayer.zPosition)")
+        } else {
+            print("❌ Margin indicator layer NOT FOUND")
+            if let sublayers = canvas.layer.sublayers {
+                print("   Available layers:")
+                for (index, layer) in sublayers.enumerated() {
+                    print("     [\(index)] \(layer.name ?? "unnamed") - \(type(of: layer))")
+                }
+            }
+        }
+        
+        print("📍 Canvas info:")
+        print("   - Bounds: \(canvas.bounds)")
+        print("   - Frame: \(canvas.frame)")
+        print("   - Is user interaction enabled: \(canvas.isUserInteractionEnabled)")
+        print("   - Is hidden: \(canvas.isHidden)")
+        
+        print("\n")
+    }
+
+    // Call this function in updateCanvasMask() after adding the green border:
     func updateCanvasMask() {
         guard let canvas = pdfDrawingCanvas else {
             print("🎭 [MASK] ERROR: pdfDrawingCanvas is nil")
             return
         }
-
-        // Create a mask that covers the ENTIRE current canvas (no clipping)
+        
+        // Create a mask that covers the ENTIRE canvas (no clipping)
         let maskLayer = CAShapeLayer()
         let fullCanvasPath = UIBezierPath(
             rect: CGRect(origin: .zero, size: canvas.bounds.size)
         )
         maskLayer.path = fullCanvasPath.cgPath
         canvas.layer.mask = maskLayer
-
+        
         // Remove old indicator
-        canvas.layer.sublayers?.removeAll { $0.name == "marginIndicator" }
-
-        // Get the current margin settings
-        let settings = marginSettings
-
-        // Page size and expansion calculations
-        let pageSize = getCurrentPageSize()
-        let minimumMarginPercent = settings.minimumMarginScale
-        let expansionRatio = 1.0 - minimumMarginPercent
-
-        // ✅ KEY CHANGE: Scale ALL coordinates by pdfScale
-        // This makes the green border shrink/grow with the canvas
-        let scaleFactor = settings.pdfScale
-
-        // Scale the PDF offset by pdfScale
-        let scaledPDFOffsetX = pageSize.width * expansionRatio * scaleFactor
-        let scaledPDFOffsetY = pageSize.height * expansionRatio * scaleFactor
-        let scaledPDFOffset = CGPoint(x: scaledPDFOffsetX, y: scaledPDFOffsetY)
-
-        // Calculate scaled page dimensions
-        let scaledPageWidth = pageSize.width * scaleFactor
-        let scaledPageHeight = pageSize.height * scaleFactor
-
-        var drawableWidth = scaledPageWidth
-        var drawableHeight = scaledPageHeight
-        var drawableX = scaledPDFOffset.x
-        var drawableY = scaledPDFOffset.y
-
-        if settings.isEnabled {
-            // Get anchor position from the enum
-            let (anchorX, anchorY) = anchorToNormalized(settings.anchorPosition)
-
-            // When margins enabled, the PDF is already scaled by pdfScale
-            // Anchor affects position within the scaled canvas
-            let shrinkX = (scaledPageWidth - scaledPageWidth) * anchorX
-            let shrinkY = (scaledPageHeight - scaledPageHeight) * anchorY
-
-            drawableX = scaledPDFOffset.x + shrinkX
-            drawableY = scaledPDFOffset.y + shrinkY
+        canvas.layer.sublayers?.forEach { layer in
+            if let namedLayer = layer as? CAShapeLayer, namedLayer.name == "marginIndicator" {
+                namedLayer.removeFromSuperlayer()
+            }
         }
-
-        let drawableRect = CGRect(x: drawableX, y: drawableY, width: drawableWidth, height: drawableHeight)
-
-        // Create green border to show drawable area
+        
+        // Get settings
+        let settings = marginSettings
+        let pageSize = CGSize(width: 612, height: 792)
+        let expansionRatio = 0.9
+        
+        // Calculate drawable area
+        let scaledPDFOffsetX = pageSize.width * expansionRatio * settings.pdfScale
+        let scaledPDFOffsetY = pageSize.height * expansionRatio * settings.pdfScale
+        let scaledPageWidth = pageSize.width * settings.pdfScale
+        let scaledPageHeight = pageSize.height * settings.pdfScale
+        
+        let drawableRect = CGRect(
+            x: scaledPDFOffsetX,
+            y: scaledPDFOffsetY,
+            width: scaledPageWidth,
+            height: scaledPageHeight
+        )
+        
+        print("🎭 [MASK] Creating indicator with rect: \(drawableRect)")
+        
+        // Create NEW indicator layer
         let indicatorLayer = CAShapeLayer()
         indicatorLayer.name = "marginIndicator"
-        indicatorLayer.path = UIBezierPath(rect: drawableRect).cgPath
+        
+        // KEY FIX: Set bounds and position so layer is actually visible
+        // Bounds must be the size of the drawable area
+        indicatorLayer.bounds = CGRect(origin: .zero, size: drawableRect.size)
+        // Position must be the top-left corner of the drawable area
+        indicatorLayer.position = CGPoint(x: drawableRect.midX, y: drawableRect.midY)
+        
+        // Path is in the layer's coordinate system (0,0 to size)
+        let pathRect = CGRect(origin: .zero, size: drawableRect.size)
+        indicatorLayer.path = UIBezierPath(rect: pathRect).cgPath
+        
         indicatorLayer.fillColor = UIColor.clear.cgColor
         indicatorLayer.strokeColor = UIColor.green.cgColor
-        indicatorLayer.lineWidth = 3.0
+        indicatorLayer.lineWidth = 4.0
+        indicatorLayer.lineDashPattern = [8, 4]
         indicatorLayer.zPosition = 1000
-
+        
+        // Add to canvas
         canvas.layer.addSublayer(indicatorLayer)
-
-        print("🎭 [MASK] DYNAMIC: Canvas scaled with green border")
-        print("🎭 [MASK]   Canvas bounds: \(canvas.bounds)")
-        print("🎭 [MASK]   PDF Scale: \(scaleFactor * 100)%")
-        print("🎭 [MASK]   Scaled PDF offset: \(scaledPDFOffset)")
-        print("🎭 [MASK]   Drawable area: \(drawableRect)")
-        print("🎭 [MASK]   Size: \(drawableWidth) × \(drawableHeight)")
-        print("🎭 [MASK]   Margins enabled: \(settings.isEnabled)")
-        if settings.isEnabled {
-            print("🎭 [MASK]   Anchor: \(settings.anchorPosition.rawValue)")
-        }
-    }
-
-    // Helper function to convert AnchorPosition enum to normalized values (0-1)
-    func anchorToNormalized(_ anchor: AnchorPosition) -> (x: CGFloat, y: CGFloat) {
-        let (row, col) = anchor.gridPosition
         
-        // col: 0=left, 1=center, 2=right
-        // row: 0=top, 1=center, 2=bottom
-        
-        let x = CGFloat(col) * 0.5  // 0, 0.5, 1.0
-        let y = CGFloat(row) * 0.5  // 0, 0.5, 1.0
-        
-        return (x, y)
-    }
-    func parseAnchorString(_ anchor: String) -> (x: CGFloat, y: CGFloat) {
-        // Examples: "TL" = topLeft, "C" = center, "BR" = bottomRight
-        let normalized = anchor.lowercased()
-        
-        let x: CGFloat
-        let y: CGFloat
-        
-        // Parse X position (left, center, right)
-        if normalized.contains("l") {  // left
-            x = 0.0
-        } else if normalized.contains("r") {  // right
-            x = 1.0
-        } else {  // center or default
-            x = 0.5
-        }
-        
-        // Parse Y position (top, center, bottom)
-        if normalized.contains("t") {  // top
-            y = 0.0
-        } else if normalized.contains("b") {  // bottom
-            y = 1.0
-        } else {  // center or default
-            y = 0.5
-        }
-        
-        return (x, y)
+        print("🎭 [MASK] ✅ Green border updated")
+        print("🎭 [MASK]   Bounds: \(indicatorLayer.bounds)")
+        print("🎭 [MASK]   Position: \(indicatorLayer.position)")
+        print("🎭 [MASK]   Path rect: \(pathRect)")
     }
 
     /// Update the mask that clips the dynamically-sized canvas to show only valid drawing area

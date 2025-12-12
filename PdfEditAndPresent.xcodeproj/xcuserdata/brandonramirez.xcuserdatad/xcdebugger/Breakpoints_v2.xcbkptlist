@@ -30,8 +30,8 @@
             filePath = "PdfEditAndPresent/PDFEditorScreenRefactored.swift"
             startingColumnNumber = "9223372036854775807"
             endingColumnNumber = "9223372036854775807"
-            startingLineNumber = "1098"
-            endingLineNumber = "1098"
+            startingLineNumber = "1064"
+            endingLineNumber = "1064"
             landmarkName = "PDFEditorScreenRefactored"
             landmarkType = "14">
          </BreakpointContent>

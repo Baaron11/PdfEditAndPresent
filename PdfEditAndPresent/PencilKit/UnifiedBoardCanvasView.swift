@@ -28,6 +28,9 @@ struct UnifiedBoardCanvasView: UIViewControllerRepresentable {
         print("🎛️ [SWIFTUI]   currentPageIndex: \(currentPageIndex)")
 
         let controller = UnifiedBoardCanvasController()
+        
+        controller.pdfManager = pdfManager
+
 
         // Initialize canvas size
         controller.initializeCanvas(size: canvasSize)

@@ -326,3 +326,75 @@ struct PDFThumbnailSidebar: View {
         isOpen: .constant(true)
     )
 }
+// ✅ ADD THIS AT FILE SCOPE (after all structs)
+struct SinglePageDropDelegate: DropDelegate {
+    let pageIndex: Int
+    @Binding var draggedPageIndex: Int?
+    @Binding var hoveredPageIndex: Int?
+    @Binding var dropTargetPosition: Int?
+    @Binding var isDraggingOver: Bool
+    var pdfManager: PDFManager
+    @Binding var moveCounter: Int
+    
+    private let thumbnailHeight: CGFloat = 116
+    
+    func dropEntered(info: DropInfo) {
+        guard draggedPageIndex != nil else { return }
+        
+        isDraggingOver = true
+        updateDropPosition(with: info)
+    }
+    
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        guard draggedPageIndex != nil else { return DropProposal(operation: .forbidden) }
+        
+        updateDropPosition(with: info)
+        return DropProposal(operation: .move)
+    }
+    
+    private func updateDropPosition(with info: DropInfo) {
+        let yOffset = info.location.y
+        let positionInThumbnail = yOffset.truncatingRemainder(dividingBy: thumbnailHeight)
+        
+        if positionInThumbnail < thumbnailHeight / 2 {
+            dropTargetPosition = pageIndex
+        } else {
+            dropTargetPosition = pageIndex + 1
+        }
+    }
+    
+    func dropExited() {
+        isDraggingOver = false
+        dropTargetPosition = nil
+    }
+    
+    func performDrop(info: DropInfo) -> Bool {
+        guard let draggedIndex = draggedPageIndex else { return false }
+        guard let insertPosition = dropTargetPosition else { return false }
+        
+        if draggedIndex == insertPosition || draggedIndex == insertPosition - 1 {
+            print("⚠️ Dropped on same page position, ignoring")
+            DispatchQueue.main.async {
+                draggedPageIndex = nil
+                hoveredPageIndex = nil
+                dropTargetPosition = nil
+                isDraggingOver = false
+                moveCounter += 1
+            }
+            return true
+        }
+        
+        print("📄 Moved page \(draggedIndex + 1) to position \(insertPosition + 1)")
+        pdfManager.movePage(from: draggedIndex, to: insertPosition)
+        
+        DispatchQueue.main.async {
+            draggedPageIndex = nil
+            hoveredPageIndex = nil
+            dropTargetPosition = nil
+            isDraggingOver = false
+            moveCounter += 1
+        }
+        
+        return true
+    }
+}

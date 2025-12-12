@@ -118,33 +118,33 @@ struct PDFEditorScreenRefactored: View {
     
     @State private var showSaveAsCopyDialog = false
     @State private var saveAsCopyFilename = ""
-
+    
     @State private var pendingBackAction: Bool = false
-
+    
     // File menu Save As (separate from back button flow)
     @State private var showFileMenuSaveAs = false
     @State private var fileMenuSaveAsFilename = ""
-
+    
     // Drawing toolbar state
     @State private var showDrawingToolbar = false
     @State private var selectedBrush: BrushConfiguration? = nil
     @StateObject private var brushManager = BrushManager()
     @StateObject private var drawingVM = DrawingViewModel()
     @State private var drawingCanvasAdapter: DrawingCanvasAPI?
-
+    
     // Brush editor modal
     @State private var showBrushEditor = false
-
+    
     // Margin settings for canvas
     @State private var marginSettings: MarginSettings = MarginSettings()
-
+    
     // Change File Size sheet
     @State private var showChangeFileSizeSheet = false
-
+    
     // Save As exporter for new/untitled documents
     @State private var showSaveAsExporter = false
     @State private var saveAsCompletionHandler: ((Bool) -> Void)?
-
+    
     // MARK: - File Menu State
     @State private var showInsertPageDialog = false
     
@@ -154,41 +154,7 @@ struct PDFEditorScreenRefactored: View {
             contentAreaView
         }
         .onAppear {
-            print("📄 Editor view appeared - initializing PDF")
-            pdfManager.setPDFDocument(pdfViewModel.currentDocument)
-            pdfViewModel.setupPDFManager(pdfManager)
-
-            // Initialize editor current page
-            pdfManager.editorCurrentPage = pdfManager.currentPageIndex + 1
-
-            // Configure DocumentManager
-            DocumentManager.shared.configure(with: pdfViewModel, pdfManager: pdfManager)
-
-            // Set up Save As callback for new/untitled documents
-            DocumentManager.shared.onSaveAsRequested = { completion in
-                saveAsCompletionHandler = completion
-                showSaveAsExporter = true
-            }
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                let pageSize = pdfManager.getCurrentPageSize()
-                editorData.initializeController(CGRect(origin: .zero, size: pageSize))
-
-                marginSettings = pdfManager.getMarginSettings(for: 0)
-
-                withAnimation {
-                    isInitialized = true
-                }
-
-                // Initialize default brush
-                if selectedBrush == nil, let first = brushManager.brushes.first {
-                    selectedBrush = first
-                    drawingVM.selectBrush(first)
-                    print("🔧 Initialized default brush: \(first.name)")
-                }
-
-                print("✅ PDF editor initialized successfully")
-            }
+            initializeEditor()  // ✅ That's it!
         }
         .onChange(of: pdfManager.currentPageIndex) { _, newIndex in
             pdfManager.editorCurrentPage = newIndex + 1
@@ -231,12 +197,12 @@ struct PDFEditorScreenRefactored: View {
                     // If not successful (cancelled Save As), stay in editor
                 }
             })
-
+            
             Button("Don't Save", role: .destructive, action: {
                 pdfViewModel.hasUnsavedChanges = false
                 dismiss()
             })
-
+            
             Button("Cancel", role: .cancel) {
                 pendingBackAction = false
             }
@@ -245,7 +211,7 @@ struct PDFEditorScreenRefactored: View {
         })
         .alert("Save as Copy", isPresented: $showSaveAsCopyDialog, actions: {
             TextField("Filename", text: $saveAsCopyFilename)
-
+            
             Button("Save", action: {
                 pdfViewModel.saveAsNewDocument(
                     pdfViewModel.currentDocument ?? PDFDocument(),
@@ -255,7 +221,7 @@ struct PDFEditorScreenRefactored: View {
                 pdfViewModel.hasUnsavedChanges = false
                 dismiss()
             })
-
+            
             Button("Cancel", role: .cancel) {
                 pendingBackAction = false
                 showSavePrompt = true
@@ -266,7 +232,7 @@ struct PDFEditorScreenRefactored: View {
         // File menu Save As - non-destructive cancel
         .alert("Save As", isPresented: $showFileMenuSaveAs, actions: {
             TextField("Filename", text: $fileMenuSaveAsFilename)
-
+            
             Button("Save", action: {
                 pdfViewModel.saveAsNewDocument(
                     pdfViewModel.currentDocument ?? PDFDocument(),
@@ -275,7 +241,7 @@ struct PDFEditorScreenRefactored: View {
                 )
                 // Do NOT dismiss or close - just stay in the editor
             })
-
+            
             Button("Cancel", role: .cancel) {
                 // Do nothing - just dismiss the alert
             }
@@ -352,7 +318,7 @@ struct PDFEditorScreenRefactored: View {
         .alert("After Which Page?", isPresented: $pdfManager.showMergePageNumberInput) {
             TextField("Page number", text: $pdfManager.mergeInsertPosition)
                 .keyboardType(.numberPad)
-
+            
             Button("Insert") {
                 if !pdfManager.mergeInsertPosition.isEmpty {
                     pdfManager.performMergePDF()
@@ -363,14 +329,14 @@ struct PDFEditorScreenRefactored: View {
             Text("Enter the page number after which to insert (1-\(pdfManager.pageCount))")
         }
     }
-
+    
     // MARK: - Toolbar View
     private var toolbarView: some View {
         VStack(spacing: ToolbarMetrics.rowSpacing) {
             titleBarView
                 .padding(.horizontal, 12)
                 .padding(.vertical, 4)
-
+            
             controlsToolbarView
                 .controlSize(.small)
                 .padding(.horizontal, 12)
@@ -393,10 +359,10 @@ struct PDFEditorScreenRefactored: View {
                 .foregroundColor(.blue)
             }
             .frame(height: ToolbarMetrics.button)
-
+            
             // MARK: File Menu
             fileMenuView
-
+            
             // MARK: Sunken Title (double-tap to edit)
             if isEditingTitle {
                 TextField("", text: $editedTitle)
@@ -408,7 +374,7 @@ struct PDFEditorScreenRefactored: View {
                     .onAppear {
                         editedTitle = pdfViewModel.currentURL?.deletingPathExtension().lastPathComponent ?? "Untitled"
                         isTitleFieldFocused = true
-
+                        
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                             if let windowScene = UIApplication.shared.connectedScenes
                                 .compactMap({ $0 as? UIWindowScene })
@@ -429,14 +395,14 @@ struct PDFEditorScreenRefactored: View {
                         isEditingTitle = true
                     }
             }
-
+            
             Menu {
                 Button(action: { showBrushEditor = true }) {
                     Label("Edit Brushes", systemImage: "pencil.tip")
                 }
-
+                
                 Divider()
-
+                
                 Button(action: { showSettings = true }) {
                     Label("PDF Settings", systemImage: "doc.badge.gearshape")
                 }
@@ -450,7 +416,7 @@ struct PDFEditorScreenRefactored: View {
             }
         }
     }
-
+    
     // MARK: - File Menu
     private var fileMenuView: some View {
         Menu {
@@ -459,7 +425,7 @@ struct PDFEditorScreenRefactored: View {
             }) {
                 Label("Save", systemImage: "square.and.arrow.down")
             }
-
+            
             Button(action: {
                 let currentName = pdfViewModel.currentURL?.deletingPathExtension().lastPathComponent ?? "Untitled"
                 fileMenuSaveAsFilename = "\(currentName)_copy"
@@ -467,25 +433,25 @@ struct PDFEditorScreenRefactored: View {
             }) {
                 Label("Save As...", systemImage: "square.and.arrow.up")
             }
-
+            
             Divider()
-
+            
             Button(action: {
                 showChangeFileSizeSheet = true
             }) {
                 Label("Change File Size...", systemImage: "doc.badge.gearshape")
             }
-
+            
             Divider()
-
+            
             Button(action: {
                 showInsertPageDialog = true
             }) {
                 Label("Insert Page...", systemImage: "doc.badge.plus")
             }
-
+            
             Divider()
-
+            
             Button(action: {
                 pdfManager.presentPrintPreview()
             }) {
@@ -532,29 +498,29 @@ struct PDFEditorScreenRefactored: View {
                         .cornerRadius(8)
                         .foregroundColor(.primary)
                 }
-
+                
                 Divider().frame(height: ToolbarMetrics.divider)
-
+                
                 if pdfManager.displayMode == .singlePage {
                     pageNavigationViewRedesigned
                 } else {
                     pageNavigationViewRedesignedContinuous
                 }
-
+                
                 Divider().frame(height: ToolbarMetrics.divider)
-
+                
                 zoomControlsView
-
+                
                 Divider().frame(height: ToolbarMetrics.divider)
-
+                
                 marginSettingsButton
-
+                
                 rotateMenuIconOnly
-
+                
                 Divider().frame(height: ToolbarMetrics.divider)
-
+                
                 modeToggleView
-
+                
                 Button(action: {
                     showDrawingToolbar.toggle()
                     canvasMode = .drawing
@@ -570,7 +536,7 @@ struct PDFEditorScreenRefactored: View {
                         .foregroundColor(showDrawingToolbar ? .blue : .primary)
                 }
                 .accessibilityLabel("Drawing Tools")
-
+                
                 Button(action: { /* TODO */ }) {
                     Text("Elements")
                         .font(.system(size: 12, weight: .semibold))
@@ -654,7 +620,7 @@ struct PDFEditorScreenRefactored: View {
             .disabled(pdfManager.currentPageIndex >= pdfManager.pageCount - 1)
         }
     }
-
+    
     private var pageNavigationViewRedesignedContinuous: some View {
         HStack(spacing: 4) {
             Button(action: {
@@ -781,7 +747,7 @@ struct PDFEditorScreenRefactored: View {
             }
             .buttonStyle(.bordered)
             .disabled(pdfManager.zoomLevel <= pdfManager.minZoom)
-
+            
             Button(action: {
                 isEditingZoom = true
                 zoomInputText = "\(Int(pdfManager.zoomLevel * 100))"
@@ -791,7 +757,7 @@ struct PDFEditorScreenRefactored: View {
                     .foregroundColor(.secondary)
                     .frame(minWidth: 40)
             }
-
+            
             Button(action: { pdfManager.zoomIn() }) {
                 Image(systemName: "plus.magnifyingglass").font(.system(size: 12))
             }
@@ -815,7 +781,7 @@ struct PDFEditorScreenRefactored: View {
             }
             .buttonStyle(.bordered)
             .tint(canvasMode == .drawing ? .blue : .gray)
-
+            
             Button {
                 canvasMode = .selecting
             } label: {
@@ -859,7 +825,7 @@ struct PDFEditorScreenRefactored: View {
                     )
                     .transition(.move(edge: .leading))
                 }
-
+                
                 ContinuousScrollPDFViewWithTracking(
                     pdfManager: pdfManager,
                     editorData: editorData,
@@ -892,7 +858,7 @@ struct PDFEditorScreenRefactored: View {
                 .gesture(continuousZoomGesture)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-
+            
             // Toolbar section - fixed at bottom
             if showDrawingToolbar {
                 DrawingToolbar(
@@ -1013,96 +979,96 @@ struct PDFEditorScreenRefactored: View {
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-            .onChange(of: canvasMode) { _, newMode in
-                if newMode == .selecting {
-                    showDrawingToolbar = false
-                }
+        .onChange(of: canvasMode) { _, newMode in
+            if newMode == .selecting {
+                showDrawingToolbar = false
+            }
             
         }
     }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
     
     private var panGestureOverlay: some View {
         Color.clear
@@ -1223,492 +1189,539 @@ struct PDFEditorScreenRefactored: View {
             dismiss()
         }
     }
-}
-
-// MARK: - Drop Delegates
-struct FixedContinuousPageDropDelegate: DropDelegate {
-    let pageIndex: Int
-    let position: Int
-    @Binding var draggedPageIndex: Int?
-    @Binding var dropTargetPosition: Int?
-    @Binding var isDraggingOver: Bool
-    var pdfManager: PDFManager
-    @Binding var visiblePageIndex: Int
-    @Binding var moveCounter: Int
-    @Binding var pageToDelete: Int?
+    // MARK: - Initialization Helpers
     
-    private let thumbnailHeight: CGFloat = 116
-    
-    func dropEntered(info: DropInfo) {
-        print("📥 Drop entered at position: \(position)")
-        guard draggedPageIndex != nil else {
-            print("⚠️ No dragged page index")
-            return
-        }
+    private func initializeEditor() {
+        print("📄 Editor view appeared - initializing PDF")
+        pdfManager.setPDFDocument(pdfViewModel.currentDocument)
         
-        isDraggingOver = true
-        updateDropPosition(with: info)
+        setupCanvasController()
+        setupPDFManager()
+        setupDocumentManager()
+        scheduleDelayedInitialization()
     }
     
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        guard draggedPageIndex != nil else { return DropProposal(operation: .forbidden) }
-        
-        updateDropPosition(with: info)
-        return DropProposal(operation: .move)
+    private func setupCanvasController() {
+        let pageSize = pdfViewModel.currentDocument?.page(at: 0)?.bounds(for: .mediaBox).size ?? CGSize(width: 612, height: 792)
+        editorData.initializeController(CGRect(origin: .zero, size: pageSize))
     }
     
-    private func updateDropPosition(with info: DropInfo) {
-        let yOffset = info.location.y
-        let positionInThumbnail = yOffset.truncatingRemainder(dividingBy: thumbnailHeight)
-        
-        if positionInThumbnail < thumbnailHeight / 2 {
-            dropTargetPosition = position
-        } else {
-            dropTargetPosition = position + 1
-        }
-        
-        print("📍 Drop target set to position: \(dropTargetPosition ?? 0)")
+    private func setupPDFManager() {
+        pdfManager.editorCurrentPage = pdfManager.currentPageIndex + 1
+        pdfViewModel.setupPDFManager(pdfManager)  // ✅ Just call - no canvas controller parameter
     }
     
-    func dropExited() {
-        print("📤 Drop exited")
-        isDraggingOver = false
+    private func setupDocumentManager() {
+        DocumentManager.shared.configure(with: pdfViewModel, pdfManager: pdfManager)
+        
+        DocumentManager.shared.onSaveAsRequested = { completion in
+            self.saveAsCompletionHandler = completion
+            self.showSaveAsExporter = true
+        }
     }
     
-    func performDrop(info: DropInfo) -> Bool {
-        print("🎯 PERFORM DROP CALLED at position: \(position)")
+    private func scheduleDelayedInitialization() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            self.completeInitialization()
+        }
+    }
+    
+    private func completeInitialization() {
+        marginSettings = pdfManager.getMarginSettings(for: 0)
         
-        guard let draggedIdx = draggedPageIndex else {
-            print("❌ performDrop: No draggedPageIndex")
-            return false
+        withAnimation {
+            isInitialized = true
         }
         
-        guard let insertPosition = dropTargetPosition else {
-            print("❌ No drop target position set")
-            return false
+        if selectedBrush == nil, let first = brushManager.brushes.first {
+            selectedBrush = first
+            drawingVM.selectBrush(first)
+            print("🔧 Initialized default brush: \(first.name)")
         }
         
-        if draggedIdx == insertPosition || draggedIdx == insertPosition - 1 {
-            print("⚠️ Dropped on same page position, ignoring")
+        // ✅ Make sure canvas controller gets pdfManager reference
+        // This should happen somewhere in your flow
+        // (It might already be happening via editorData or another way)
+        
+        print("✅ PDF editor initialized successfully")
+    }
+    
+    // MARK: - Drop Delegates
+    struct FixedContinuousPageDropDelegate: DropDelegate {
+        let pageIndex: Int
+        let position: Int
+        @Binding var draggedPageIndex: Int?
+        @Binding var dropTargetPosition: Int?
+        @Binding var isDraggingOver: Bool
+        var pdfManager: PDFManager
+        @Binding var visiblePageIndex: Int
+        @Binding var moveCounter: Int
+        @Binding var pageToDelete: Int?
+        
+        private let thumbnailHeight: CGFloat = 116
+        
+        func dropEntered(info: DropInfo) {
+            print("📥 Drop entered at position: \(position)")
+            guard draggedPageIndex != nil else {
+                print("⚠️ No dragged page index")
+                return
+            }
+            
+            isDraggingOver = true
+            updateDropPosition(with: info)
+        }
+        
+        func dropUpdated(info: DropInfo) -> DropProposal? {
+            guard draggedPageIndex != nil else { return DropProposal(operation: .forbidden) }
+            
+            updateDropPosition(with: info)
+            return DropProposal(operation: .move)
+        }
+        
+        private func updateDropPosition(with info: DropInfo) {
+            let yOffset = info.location.y
+            let positionInThumbnail = yOffset.truncatingRemainder(dividingBy: thumbnailHeight)
+            
+            if positionInThumbnail < thumbnailHeight / 2 {
+                dropTargetPosition = position
+            } else {
+                dropTargetPosition = position + 1
+            }
+            
+            print("📍 Drop target set to position: \(dropTargetPosition ?? 0)")
+        }
+        
+        func dropExited() {
+            print("📤 Drop exited")
+            isDraggingOver = false
+        }
+        
+        func performDrop(info: DropInfo) -> Bool {
+            print("🎯 PERFORM DROP CALLED at position: \(position)")
+            
+            guard let draggedIdx = draggedPageIndex else {
+                print("❌ performDrop: No draggedPageIndex")
+                return false
+            }
+            
+            guard let insertPosition = dropTargetPosition else {
+                print("❌ No drop target position set")
+                return false
+            }
+            
+            if draggedIdx == insertPosition || draggedIdx == insertPosition - 1 {
+                print("⚠️ Dropped on same page position, ignoring")
+                DispatchQueue.main.async {
+                    draggedPageIndex = nil
+                    dropTargetPosition = nil
+                    isDraggingOver = false
+                    pageToDelete = nil
+                    self.moveCounter += 1
+                }
+                return true
+            }
+            
+            print("🔄 REORDERING: Moving page \(draggedIdx + 1) to position \(insertPosition)")
+            
+            pdfManager.movePage(from: draggedIdx, to: insertPosition)
+            
+            if visiblePageIndex == draggedIdx {
+                visiblePageIndex = insertPosition
+                print("   Updated visible page to: \(insertPosition)")
+            }
+            
+            print("✅ Drop operation completed successfully!")
+            
             DispatchQueue.main.async {
+                print("🧹 Resetting drag state BEFORE view refresh")
                 draggedPageIndex = nil
                 dropTargetPosition = nil
                 isDraggingOver = false
                 pageToDelete = nil
                 self.moveCounter += 1
+                print("📸 Incremented moveCounter to refresh views with clean drag state")
             }
+            
             return true
         }
+    }
+    
+    // At file scope (after the struct)
+    struct SinglePageDropDelegate: DropDelegate {
+        let pageIndex: Int
+        @Binding var draggedPageIndex: Int?
+        @Binding var hoveredPageIndex: Int?
+        @Binding var dropTargetPosition: Int?
+        @Binding var isDraggingOver: Bool
+        var pdfManager: PDFManager
+        @Binding var moveCounter: Int
         
-        print("🔄 REORDERING: Moving page \(draggedIdx + 1) to position \(insertPosition)")
+        private let thumbnailHeight: CGFloat = 116
         
-        pdfManager.movePage(from: draggedIdx, to: insertPosition)
-        
-        if visiblePageIndex == draggedIdx {
-            visiblePageIndex = insertPosition
-            print("   Updated visible page to: \(insertPosition)")
+        func dropEntered(info: DropInfo) {
+            guard draggedPageIndex != nil else { return }
+            isDraggingOver = true
+            updateDropPosition(with: info)
         }
         
-        print("✅ Drop operation completed successfully!")
+        func dropUpdated(info: DropInfo) -> DropProposal? {
+            guard draggedPageIndex != nil else { return DropProposal(operation: .forbidden) }
+            updateDropPosition(with: info)
+            return DropProposal(operation: .move)
+        }
         
-        DispatchQueue.main.async {
-            print("🧹 Resetting drag state BEFORE view refresh")
-            draggedPageIndex = nil
-            dropTargetPosition = nil
+        private func updateDropPosition(with info: DropInfo) {
+            let yOffset = info.location.y
+            let positionInThumbnail = yOffset.truncatingRemainder(dividingBy: thumbnailHeight)
+            if positionInThumbnail < thumbnailHeight / 2 {
+                dropTargetPosition = pageIndex
+            } else {
+                dropTargetPosition = pageIndex + 1
+            }
+        }
+        
+        func dropExited() {
             isDraggingOver = false
-            pageToDelete = nil
-            self.moveCounter += 1
-            print("📸 Incremented moveCounter to refresh views with clean drag state")
+            dropTargetPosition = nil
         }
         
-        return true
-    }
-}
-
-struct SinglePageDropDelegate: DropDelegate {
-    let pageIndex: Int
-    @Binding var draggedPageIndex: Int?
-    @Binding var hoveredPageIndex: Int?
-    @Binding var dropTargetPosition: Int?
-    @Binding var isDraggingOver: Bool
-    var pdfManager: PDFManager
-    @Binding var moveCounter: Int
-    
-    private let thumbnailHeight: CGFloat = 116
-    
-    func dropEntered(info: DropInfo) {
-        guard draggedPageIndex != nil else { return }
-        
-        isDraggingOver = true
-        updateDropPosition(with: info)
-    }
-    
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        guard draggedPageIndex != nil else { return DropProposal(operation: .forbidden) }
-        
-        updateDropPosition(with: info)
-        return DropProposal(operation: .move)
-    }
-    
-    private func updateDropPosition(with info: DropInfo) {
-        let yOffset = info.location.y
-        let positionInThumbnail = yOffset.truncatingRemainder(dividingBy: thumbnailHeight)
-        
-        if positionInThumbnail < thumbnailHeight / 2 {
-            dropTargetPosition = pageIndex
-        } else {
-            dropTargetPosition = pageIndex + 1
-        }
-    }
-    
-    func dropExited() {
-        isDraggingOver = false
-        dropTargetPosition = nil
-    }
-    
-    func performDrop(info: DropInfo) -> Bool {
-        guard let draggedIndex = draggedPageIndex else { return false }
-        
-        guard let insertPosition = dropTargetPosition else { return false }
-        
-        if draggedIndex == insertPosition || draggedIndex == insertPosition - 1 {
-            print("⚠️ Dropped on same page position, ignoring")
+        func performDrop(info: DropInfo) -> Bool {
+            guard let draggedIndex = draggedPageIndex else { return false }
+            guard let insertPosition = dropTargetPosition else { return false }
+            
+            if draggedIndex == insertPosition || draggedIndex == insertPosition - 1 {
+                DispatchQueue.main.async {
+                    draggedPageIndex = nil
+                    hoveredPageIndex = nil
+                    dropTargetPosition = nil
+                    isDraggingOver = false
+                    moveCounter += 1
+                }
+                return true
+            }
+            
+            pdfManager.movePage(from: draggedIndex, to: insertPosition)
+            
             DispatchQueue.main.async {
                 draggedPageIndex = nil
                 hoveredPageIndex = nil
                 dropTargetPosition = nil
                 isDraggingOver = false
-                self.moveCounter += 1
+                moveCounter += 1
             }
+            
             return true
         }
+    }
+    
+    // MARK: - Thumbnail Sidebar
+    struct ContinuousScrollThumbnailSidebar: View {
+        @ObservedObject var pdfManager: PDFManager
+        @Binding var visiblePageIndex: Int
+        @Binding var isOpen: Bool
+        var onPageSelected: (Int) -> Void
         
-        print("📄 Moved page \(draggedIndex + 1) to position \(insertPosition + 1)")
-        pdfManager.movePage(from: draggedIndex, to: insertPosition)
+        @State private var draggedPageIndex: Int?
+        @State private var dropTargetPosition: Int?
+        @State private var isDraggingOver: Bool = false
+        @State private var pageToDelete: Int?
+        @State private var showDeleteConfirmation = false
+        @State private var moveCounter = 0
+        @State private var isEditMode = false
+        @State private var showFilePicker = false
+        @State private var showInsertPositionDialog = false
+        @State private var showPageNumberInput = false
+        @State private var selectedPDFURL: URL?
+        @State private var insertPosition: String = ""
+        @State private var insertMethod: InsertMethod = .atEnd
         
-        print("✅ Drop operation completed successfully!")
-        
-        DispatchQueue.main.async {
-            print("🧹 Resetting drag state BEFORE view refresh")
-            draggedPageIndex = nil
-            hoveredPageIndex = nil
-            dropTargetPosition = nil
-            isDraggingOver = false
-            
-            self.moveCounter += 1
-            print("📸 Incremented moveCounter to refresh views with clean drag state")
+        enum InsertMethod {
+            case atFront
+            case atEnd
+            case afterPage
         }
         
-        return true
-    }
-}
-
-// MARK: - Thumbnail Sidebar
-struct ContinuousScrollThumbnailSidebar: View {
-    @ObservedObject var pdfManager: PDFManager
-    @Binding var visiblePageIndex: Int
-    @Binding var isOpen: Bool
-    var onPageSelected: (Int) -> Void
-    
-    @State private var draggedPageIndex: Int?
-    @State private var dropTargetPosition: Int?
-    @State private var isDraggingOver: Bool = false
-    @State private var pageToDelete: Int?
-    @State private var showDeleteConfirmation = false
-    @State private var moveCounter = 0
-    @State private var isEditMode = false
-    @State private var showFilePicker = false
-    @State private var showInsertPositionDialog = false
-    @State private var showPageNumberInput = false
-    @State private var selectedPDFURL: URL?
-    @State private var insertPosition: String = ""
-    @State private var insertMethod: InsertMethod = .atEnd
-    
-    enum InsertMethod {
-        case atFront
-        case atEnd
-        case afterPage
-    }
-    
-    var body: some View {
-        VStack(spacing: 0) {
-            ScrollViewReader { proxy in
-                ScrollView(.vertical, showsIndicators: true) {
-                    VStack(spacing: 0) {
-                        if let dropTarget = dropTargetPosition, dropTarget == 0 && isDraggingOver {
-                            dropIndicatorLine
-                        }
-                        
-                        ForEach(0..<pdfManager.pageCount, id: \.self) { position in
-                            thumbnailItem(for: position, position: position)
-                            
-                            if let dropTarget = dropTargetPosition, dropTarget == position + 1 && isDraggingOver {
+        var body: some View {
+            VStack(spacing: 0) {
+                ScrollViewReader { proxy in
+                    ScrollView(.vertical, showsIndicators: true) {
+                        VStack(spacing: 0) {
+                            if let dropTarget = dropTargetPosition, dropTarget == 0 && isDraggingOver {
                                 dropIndicatorLine
                             }
+                            
+                            ForEach(0..<pdfManager.pageCount, id: \.self) { position in
+                                thumbnailItem(for: position, position: position)
+                                
+                                if let dropTarget = dropTargetPosition, dropTarget == position + 1 && isDraggingOver {
+                                    dropIndicatorLine
+                                }
+                            }
+                            
+                            // Slim action buttons
+                            sidebarActionButtons
                         }
+                        .padding(8)
+                    }
+                    .background(Color.gray.opacity(0.05))
+                    .onChange(of: visiblePageIndex) { _, newIndex in
+                        guard !isEditMode, draggedPageIndex == nil else { return }
                         
-                        // Slim action buttons
-                        sidebarActionButtons
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            proxy.scrollTo(newIndex, anchor: .center)
+                        }
                     }
-                    .padding(8)
-                }
-                .background(Color.gray.opacity(0.05))
-                .onChange(of: visiblePageIndex) { _, newIndex in
-                    guard !isEditMode, draggedPageIndex == nil else { return }
-                    
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        proxy.scrollTo(newIndex, anchor: .center)
-                    }
-                }
-                .onAppear {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        proxy.scrollTo(visiblePageIndex, anchor: .center)
+                    .onAppear {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            proxy.scrollTo(visiblePageIndex, anchor: .center)
+                        }
                     }
                 }
             }
-        }
-        .frame(width: 120)
-        .background(Color.white)
-        .overlay(
-            VStack { }
-                .frame(width: 1)
-                .background(Color.gray.opacity(0.2))
-                .frame(maxWidth: .infinity, alignment: .trailing)
-        )
-        .alert("Delete Page?", isPresented: $showDeleteConfirmation) {
-            Button("Delete", role: .destructive) {
-                if let pageIndex = pageToDelete {
-                    deletePage(at: pageIndex)
+            .frame(width: 120)
+            .background(Color.white)
+            .overlay(
+                VStack { }
+                    .frame(width: 1)
+                    .background(Color.gray.opacity(0.2))
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            )
+            .alert("Delete Page?", isPresented: $showDeleteConfirmation) {
+                Button("Delete", role: .destructive) {
+                    if let pageIndex = pageToDelete {
+                        deletePage(at: pageIndex)
+                    }
                 }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("Are you sure you want to delete page \(pageToDelete.map { $0 + 1 } ?? 0)? This cannot be undone.")
             }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("Are you sure you want to delete page \(pageToDelete.map { $0 + 1 } ?? 0)? This cannot be undone.")
-        }
-        .fileImporter(
-            isPresented: $showFilePicker,
-            allowedContentTypes: [.pdf],
-            onCompletion: { result in
-                if case .success(let url) = result {
-                    selectedPDFURL = url
-                    showInsertPositionDialog = true
+            .fileImporter(
+                isPresented: $showFilePicker,
+                allowedContentTypes: [.pdf],
+                onCompletion: { result in
+                    if case .success(let url) = result {
+                        selectedPDFURL = url
+                        showInsertPositionDialog = true
+                    }
                 }
-            }
-        )
-        .confirmationDialog("Insert Position", isPresented: $showInsertPositionDialog) {
-            Button("At Front") {
-                insertMethod = .atFront
-                insertPDF()
-            }
-            Button("At End") {
-                insertMethod = .atEnd
-                insertPDF()
-            }
-            Button("After Page...") {
-                insertMethod = .afterPage
-                showPageNumberInput = true
-            }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("Where would you like to insert the PDF?")
-        }
-        .alert("After Which Page?", isPresented: $showPageNumberInput) {
-            TextField("Page number", text: $insertPosition)
-                .keyboardType(.numberPad)
-
-            Button("Insert") {
-                if !insertPosition.isEmpty {
+            )
+            .confirmationDialog("Insert Position", isPresented: $showInsertPositionDialog) {
+                Button("At Front") {
+                    insertMethod = .atFront
                     insertPDF()
                 }
+                Button("At End") {
+                    insertMethod = .atEnd
+                    insertPDF()
+                }
+                Button("After Page...") {
+                    insertMethod = .afterPage
+                    showPageNumberInput = true
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("Where would you like to insert the PDF?")
             }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("Enter the page number after which to insert (1-\(pdfManager.pageCount))")
-        }
-    }
-
-    private var dropIndicatorLine: some View {
-        RoundedRectangle(cornerRadius: 1.5)
-            .fill(Color.blue)
-            .frame(height: 3)
-            .padding(.vertical, 2)
-    }
-    
-    @ViewBuilder
-    private func thumbnailItem(for pageIndex: Int, position: Int) -> some View {
-        ZStack(alignment: .topTrailing) {
-            if !isEditMode {
-                thumbnailButton(for: pageIndex, position: position)
-                    .onDrag {
-                        draggedPageIndex = pageIndex
-                        print("🎯 Started dragging page \(pageIndex + 1)")
-                        return NSItemProvider(object: "\(pageIndex)" as NSString)
+            .alert("After Which Page?", isPresented: $showPageNumberInput) {
+                TextField("Page number", text: $insertPosition)
+                    .keyboardType(.numberPad)
+                
+                Button("Insert") {
+                    if !insertPosition.isEmpty {
+                        insertPDF()
                     }
-                    .onDrop(of: [.text], delegate: FixedContinuousPageDropDelegate(
-                        pageIndex: pageIndex,
-                        position: position,
-                        draggedPageIndex: $draggedPageIndex,
-                        dropTargetPosition: $dropTargetPosition,
-                        isDraggingOver: $isDraggingOver,
-                        pdfManager: pdfManager,
-                        visiblePageIndex: $visiblePageIndex,
-                        moveCounter: $moveCounter,
-                        pageToDelete: $pageToDelete
-                    ))
-            } else {
-                thumbnailButton(for: pageIndex, position: position)
-            }
-            
-            if isEditMode && draggedPageIndex != pageIndex && pageIndex != pageToDelete {
-                Button(action: {
-                    pageToDelete = pageIndex
-                    showDeleteConfirmation = true
-                }) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 8, weight: .semibold))
-                        .foregroundColor(.white)
-                        .frame(width: 16, height: 16)
-                        .background(Circle().fill(Color.blue))
                 }
-                .padding(3)
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("Enter the page number after which to insert (1-\(pdfManager.pageCount))")
             }
         }
-        .padding(.vertical, 4)
-        .id(pageIndex)
-    }
-    
-    @ViewBuilder
-    private func thumbnailButton(for pageIndex: Int, position: Int) -> some View {
-        Button(action: { onPageSelected(pageIndex) }) {
-            thumbnailContent(for: pageIndex)
-                .frame(maxWidth: .infinity)
-                .padding(8)
-                .background(visiblePageIndex == pageIndex ? Color.blue.opacity(0.2) : Color.white)
-                .border(visiblePageIndex == pageIndex ? Color.blue : Color.gray.opacity(0.3), width: visiblePageIndex == pageIndex ? 2 : 1)
-                .cornerRadius(4)
-                .opacity(draggedPageIndex == pageIndex ? 0.5 : 1.0)
+        
+        private var dropIndicatorLine: some View {
+            RoundedRectangle(cornerRadius: 1.5)
+                .fill(Color.blue)
+                .frame(height: 3)
+                .padding(.vertical, 2)
         }
-    }
-    
-    @ViewBuilder
-    private func thumbnailContent(for pageIndex: Int) -> some View {
-        VStack(spacing: 4) {
-            if pageIndex < pdfManager.thumbnails.count,
-               let image = pdfManager.thumbnails[pageIndex] {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(height: 100)
-            } else {
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(Color.gray.opacity(0.2))
-                    .frame(height: 100)
-            }
-            
-            Text("Page \(pageIndex + 1)")
-                .font(.system(size: 10, weight: .medium))
-                .foregroundColor(.primary)
-        }
-    }
-    
-    // MARK: - Sidebar Action Buttons (Slim Style)
-    @ViewBuilder
-    private var sidebarActionButtons: some View {
-        VStack(spacing: 12) {
-            Button {
-                pdfManager.addBlankPage()
-            } label: {
-                SidebarActionButton(systemImage: "plus", title: "Blank", iconPointSize: 14)
-            }
-            .buttonStyle(SidebarActionButtonStyle())
-
-            Button {
-                pdfManager.triggerMergePDF()
-            } label: {
-                SidebarActionButton(systemImage: "doc.badge.plus", title: "PDF", iconPointSize: 14)
-            }
-            .buttonStyle(SidebarActionButtonStyle())
-
-            Button {
-                isEditMode.toggle()
+        
+        @ViewBuilder
+        private func thumbnailItem(for pageIndex: Int, position: Int) -> some View {
+            ZStack(alignment: .topTrailing) {
                 if !isEditMode {
-                    pageToDelete = nil
-                    draggedPageIndex = nil
+                    thumbnailButton(for: pageIndex, position: position)
+                        .onDrag {
+                            draggedPageIndex = pageIndex
+                            print("🎯 Started dragging page \(pageIndex + 1)")
+                            return NSItemProvider(object: "\(pageIndex)" as NSString)
+                        }
+                        .onDrop(of: [.text], delegate: FixedContinuousPageDropDelegate(
+                            pageIndex: pageIndex,
+                            position: position,
+                            draggedPageIndex: $draggedPageIndex,
+                            dropTargetPosition: $dropTargetPosition,
+                            isDraggingOver: $isDraggingOver,
+                            pdfManager: pdfManager,
+                            visiblePageIndex: $visiblePageIndex,
+                            moveCounter: $moveCounter,
+                            pageToDelete: $pageToDelete
+                        ))
+                } else {
+                    thumbnailButton(for: pageIndex, position: position)
                 }
-            } label: {
-                SidebarActionButton(systemImage: isEditMode ? "checkmark.circle.fill" : "trash", title: isEditMode ? "Done" : "Delete", iconPointSize: 14)
+                
+                if isEditMode && draggedPageIndex != pageIndex && pageIndex != pageToDelete {
+                    Button(action: {
+                        pageToDelete = pageIndex
+                        showDeleteConfirmation = true
+                    }) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 8, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(width: 16, height: 16)
+                            .background(Circle().fill(Color.blue))
+                    }
+                    .padding(3)
+                }
             }
-            .buttonStyle(SidebarActionButtonStyle())
+            .padding(.vertical, 4)
+            .id(pageIndex)
         }
-        .padding(.horizontal, 8)
-        .padding(.top, 8)
+        
+        @ViewBuilder
+        private func thumbnailButton(for pageIndex: Int, position: Int) -> some View {
+            Button(action: { onPageSelected(pageIndex) }) {
+                thumbnailContent(for: pageIndex)
+                    .frame(maxWidth: .infinity)
+                    .padding(8)
+                    .background(visiblePageIndex == pageIndex ? Color.blue.opacity(0.2) : Color.white)
+                    .border(visiblePageIndex == pageIndex ? Color.blue : Color.gray.opacity(0.3), width: visiblePageIndex == pageIndex ? 2 : 1)
+                    .cornerRadius(4)
+                    .opacity(draggedPageIndex == pageIndex ? 0.5 : 1.0)
+            }
+        }
+        
+        @ViewBuilder
+        private func thumbnailContent(for pageIndex: Int) -> some View {
+            VStack(spacing: 4) {
+                if pageIndex < pdfManager.thumbnails.count,
+                   let image = pdfManager.thumbnails[pageIndex] {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(height: 100)
+                } else {
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color.gray.opacity(0.2))
+                        .frame(height: 100)
+                }
+                
+                Text("Page \(pageIndex + 1)")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.primary)
+            }
+        }
+        
+        // MARK: - Sidebar Action Buttons (Slim Style)
+        @ViewBuilder
+        private var sidebarActionButtons: some View {
+            VStack(spacing: 12) {
+                Button {
+                    pdfManager.addBlankPage()
+                } label: {
+                    SidebarActionButton(systemImage: "plus", title: "Blank", iconPointSize: 14)
+                }
+                .buttonStyle(SidebarActionButtonStyle())
+                
+                Button {
+                    pdfManager.triggerMergePDF()
+                } label: {
+                    SidebarActionButton(systemImage: "doc.badge.plus", title: "PDF", iconPointSize: 14)
+                }
+                .buttonStyle(SidebarActionButtonStyle())
+                
+                Button {
+                    isEditMode.toggle()
+                    if !isEditMode {
+                        pageToDelete = nil
+                        draggedPageIndex = nil
+                    }
+                } label: {
+                    SidebarActionButton(systemImage: isEditMode ? "checkmark.circle.fill" : "trash", title: isEditMode ? "Done" : "Delete", iconPointSize: 14)
+                }
+                .buttonStyle(SidebarActionButtonStyle())
+            }
+            .padding(.horizontal, 8)
+            .padding(.top, 8)
+        }
+        
+        private func insertPDF() {
+            guard let pdfURL = selectedPDFURL else { return }
+            
+            let targetPosition: Int
+            switch insertMethod {
+            case .atFront:
+                targetPosition = 0
+                print("📥 Inserting PDF at front")
+            case .atEnd:
+                targetPosition = pdfManager.pageCount
+                print("📥 Inserting PDF at end")
+            case .afterPage:
+                if let pageNum = Int(insertPosition), pageNum > 0 && pageNum <= pdfManager.pageCount {
+                    targetPosition = pageNum
+                    print("📥 Inserting PDF after page \(pageNum)")
+                } else {
+                    print("❌ Invalid page number: \(insertPosition)")
+                    return
+                }
+            }
+            
+            pdfManager.insertPDF(from: pdfURL, at: targetPosition)
+            
+            selectedPDFURL = nil
+            insertPosition = ""
+            insertMethod = .atEnd
+            showPageNumberInput = false
+        }
+        
+        private func deletePage(at index: Int) {
+            print("🗑️ Deleting page \(index + 1)")
+            pdfManager.deletePage(at: index)
+            
+            draggedPageIndex = nil
+            
+            if visiblePageIndex >= pdfManager.pageCount {
+                visiblePageIndex = max(0, pdfManager.pageCount - 1)
+            }
+            
+            pageToDelete = nil
+        }
     }
     
-    private func insertPDF() {
-        guard let pdfURL = selectedPDFURL else { return }
-        
-        let targetPosition: Int
-        switch insertMethod {
-        case .atFront:
-            targetPosition = 0
-            print("📥 Inserting PDF at front")
-        case .atEnd:
-            targetPosition = pdfManager.pageCount
-            print("📥 Inserting PDF at end")
-        case .afterPage:
-            if let pageNum = Int(insertPosition), pageNum > 0 && pageNum <= pdfManager.pageCount {
-                targetPosition = pageNum
-                print("📥 Inserting PDF after page \(pageNum)")
-            } else {
-                print("❌ Invalid page number: \(insertPosition)")
-                return
-            }
-        }
-        
-        pdfManager.insertPDF(from: pdfURL, at: targetPosition)
-        
-        selectedPDFURL = nil
-        insertPosition = ""
-        insertMethod = .atEnd
-        showPageNumberInput = false
-    }
-    
-    private func deletePage(at index: Int) {
-        print("🗑️ Deleting page \(index + 1)")
-        pdfManager.deletePage(at: index)
-        
-        draggedPageIndex = nil
-        
-        if visiblePageIndex >= pdfManager.pageCount {
-            visiblePageIndex = max(0, pdfManager.pageCount - 1)
-        }
-        
-        pageToDelete = nil
+    #Preview {
+        ContinuousScrollThumbnailSidebar(
+            pdfManager: PDFManager(),
+            visiblePageIndex: .constant(0),
+            isOpen: .constant(true),
+            onPageSelected: { _ in }
+        )
     }
 }
-
-#Preview {
-    ContinuousScrollThumbnailSidebar(
-        pdfManager: PDFManager(),
-        visiblePageIndex: .constant(0),
-        isOpen: .constant(true),
-        onPageSelected: { _ in }
-    )
-}
-
-// ✅ ADD THIS EXTENSION
-extension UIView {
-    var firstTextField: UITextField? {
-        if let textField = self as? UITextField {
-            return textField
-        }
-        
-        for subview in subviews {
-            if let textField = subview.firstTextField {
+    // ✅ ADD THIS EXTENSION
+    extension UIView {
+        var firstTextField: UITextField? {
+            if let textField = self as? UITextField {
                 return textField
             }
+            
+            for subview in subviews {
+                if let textField = subview.firstTextField {
+                    return textField
+                }
+            }
+            
+            return nil
         }
-        
-        return nil
     }
-}
+
+
